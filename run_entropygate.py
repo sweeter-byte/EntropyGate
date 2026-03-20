@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from methods.generation_configs.entropygate_generation_config import GenerationConfigEntropyGate
 from methods.generation_configs.contrastive_generation_config import GenerationConfigContrastive
+from methods.generation_configs.latent_generation_config import GenerationConfigLatent
 
 from constants.vcd_constants import (
     DEFAULT_VCD_ALPHA,
@@ -45,6 +46,19 @@ from constants.crops_constants import (
     DEFAULT_ALPHA_STAT_BIAS,
     DEFAULT_BETA_CUTOFF,
     DEFAULT_MAX_THRESHOLD_PLAUSIBILITY_CONSTRAINT,
+)
+
+from constants.latent_constants import (
+    DEFAULT_HSC_ALPHA_BASE,
+    DEFAULT_HSC_ALPHA_MIN,
+    DEFAULT_HSC_ETA,
+    DEFAULT_HSC_TAU,
+    DEFAULT_LEG_HIDDEN_LAYER,
+    DEFAULT_LLH_HIDDEN_ALPHA_BASE,
+    DEFAULT_LLH_HIDDEN_ALPHA_MIN,
+    DEFAULT_LLH_HIDDEN_ETA,
+    DEFAULT_LLH_HIDDEN_TAU,
+    DEFAULT_LATENT_METHOD,
 )
 
 from constants.image_token_constants import get_image_token_id
@@ -89,8 +103,8 @@ distributed_state = PartialState()
 def args_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--method", type=str, default="entropygate",
-                        choices=["vanilla", "crops", "entropygate", "vcd", "vcd_eg"],
-                        help="Decoding method: vanilla, crops, entropygate, vcd (original VCD), vcd_eg (VCD+EntropyGate)")
+                        choices=["vanilla", "crops", "entropygate", "vcd", "vcd_eg", "latent"],
+                        help="Decoding method: vanilla, crops, entropygate, vcd, vcd_eg, latent (HSC/LEG/LLH)")
     parser.add_argument("--model_name", type=str, default="llava-hf/llava-1.5-7b-hf")
     parser.add_argument("--load_in_8bit", action='store_true', default=False)
     parser.add_argument("--load_in_4bit", action='store_true', default=False)
@@ -152,6 +166,25 @@ def args_parser():
     # VCD+EntropyGate config (reuses eta_vis, tau_gate from EntropyGate)
     parser.add_argument("--vcd_eg_alpha_min", type=float, default=0.5)
     parser.add_argument("--vcd_eg_alpha_max", type=float, default=1.5)
+
+    # Latent-space method config (HSC/LEG/LLH)
+    parser.add_argument("--latent_method", type=str, default=DEFAULT_LATENT_METHOD,
+                        choices=["hsc", "leg", "llh"],
+                        help="Latent method: hsc (Hidden State Contrastive), leg (Latent Entropy Gate), llh (Latent-Logit Hybrid)")
+    # HSC params
+    parser.add_argument("--hsc_alpha_base", type=float, default=DEFAULT_HSC_ALPHA_BASE)
+    parser.add_argument("--hsc_alpha_min", type=float, default=DEFAULT_HSC_ALPHA_MIN)
+    parser.add_argument("--hsc_eta", type=float, default=DEFAULT_HSC_ETA)
+    parser.add_argument("--hsc_tau", type=float, default=DEFAULT_HSC_TAU)
+    # LEG params
+    parser.add_argument("--leg_hidden_layer", type=int, default=DEFAULT_LEG_HIDDEN_LAYER,
+                        help="Index into outputs.hidden_states for LEG entropy. "
+                             "-16 = roughly mid-layer for 32-layer models.")
+    # LLH params
+    parser.add_argument("--llh_hidden_alpha_base", type=float, default=DEFAULT_LLH_HIDDEN_ALPHA_BASE)
+    parser.add_argument("--llh_hidden_alpha_min", type=float, default=DEFAULT_LLH_HIDDEN_ALPHA_MIN)
+    parser.add_argument("--llh_hidden_eta", type=float, default=DEFAULT_LLH_HIDDEN_ETA)
+    parser.add_argument("--llh_hidden_tau", type=float, default=DEFAULT_LLH_HIDDEN_TAU)
 
     # Evaluation config
     parser.add_argument("--seed", type=int, default=42)
@@ -261,6 +294,34 @@ def make_generation_config(args, image_tokens, input_ids_lang_prior):
             max_threshold_plausibility_constraint=args.max_threshold_plausibility_constraint,
         )
 
+    if args.method == "latent":
+        return GenerationConfigLatent(
+            **common_kwargs,
+            **shared_kwargs,
+            # EntropyGate params (reused by LEG)
+            alpha_base_vis=args.alpha_base_vis,
+            alpha_min_vis=args.alpha_min_vis,
+            eta_vis=args.eta_vis,
+            tau_gate=args.tau_gate,
+            gamma_decay=args.gamma_decay,
+            beta_cutoff_fixed=args.beta_cutoff_fixed,
+            theta_safe=args.theta_safe,
+            # HSC params
+            hsc_alpha_base=args.hsc_alpha_base,
+            hsc_alpha_min=args.hsc_alpha_min,
+            hsc_eta=args.hsc_eta,
+            hsc_tau=args.hsc_tau,
+            # LEG params
+            leg_hidden_layer=args.leg_hidden_layer,
+            # LLH params
+            llh_hidden_alpha_base=args.llh_hidden_alpha_base,
+            llh_hidden_alpha_min=args.llh_hidden_alpha_min,
+            llh_hidden_eta=args.llh_hidden_eta,
+            llh_hidden_tau=args.llh_hidden_tau,
+            # Method selector
+            latent_method=args.latent_method,
+        )
+
     # entropygate (default)
     return GenerationConfigEntropyGate(
         **common_kwargs,
@@ -304,6 +365,9 @@ def main():
     elif args.method in ("vcd", "vcd_eg"):
         from methods.vcd_method import patch_everything_vcd
         patch_everything_vcd()
+    elif args.method == "latent":
+        from methods.latent_method import patch_everything_latent
+        patch_everything_latent()
     # vanilla: no patching needed
 
     # Setup logging
@@ -311,13 +375,22 @@ def main():
     eg_logger.info(f"EntropyGate experiment: {args.experiment_name}")
     eg_logger.info(f"Log file: {log_file}")
     eg_logger.info(f"Model: {args.model_name}")
-    eg_logger.info(
-        f"Hyperparams: scheme={args.eg_scheme} alpha_vis={args.alpha_base_vis} alpha_txt={args.alpha_base_txt} "
-        f"alpha_min_vis={args.alpha_min_vis} alpha_min_txt={args.alpha_min_txt} "
-        f"eta_vis={args.eta_vis} eta_txt={args.eta_txt} tau={args.tau_gate} "
-        f"gamma={args.gamma_decay} beta_base={args.beta_base} beta_range={args.beta_range} "
-        f"theta_safe={args.theta_safe}"
-    )
+    if args.method == "latent":
+        eg_logger.info(
+            f"Hyperparams: latent_method={args.latent_method} "
+            f"hsc_alpha=[{args.hsc_alpha_min},{args.hsc_alpha_base}] hsc_eta={args.hsc_eta} hsc_tau={args.hsc_tau} "
+            f"leg_hidden_layer={args.leg_hidden_layer} "
+            f"llh_alpha=[{args.llh_hidden_alpha_min},{args.llh_hidden_alpha_base}] "
+            f"gamma={args.gamma_decay} beta_cutoff={args.beta_cutoff_fixed} theta_safe={args.theta_safe}"
+        )
+    else:
+        eg_logger.info(
+            f"Hyperparams: scheme={args.eg_scheme} alpha_vis={args.alpha_base_vis} alpha_txt={args.alpha_base_txt} "
+            f"alpha_min_vis={args.alpha_min_vis} alpha_min_txt={args.alpha_min_txt} "
+            f"eta_vis={args.eta_vis} eta_txt={args.eta_txt} tau={args.tau_gate} "
+            f"gamma={args.gamma_decay} beta_base={args.beta_base} beta_range={args.beta_range} "
+            f"theta_safe={args.theta_safe}"
+        )
     eg_logger.info(f"Full args: {vars(args)}")
 
     if args.load_in_8bit:
