@@ -1,0 +1,6 @@
+logs/
+.claude/
+__pycache__/
+AGENTS.md
+CLAUDE.md
+experiments/
