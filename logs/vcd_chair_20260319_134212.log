@@ -1,0 +1,52 @@
+============================================================
+VCD CHAIR Experiments — 2026年 03月 19日 星期四 13:42:12 CST
+Model: /data1/ranmaoyin/models/llava-1.5-7b-hf
+GPU: 3
+============================================================
+
+------------------------------------------------------------
+Method: VCD (original) | alpha=1.0 | noise_step=500
+------------------------------------------------------------
+CMD: python3 /data1/ranmaoyin/EntropyGate/run_entropygate.py --method vcd --model_name /data1/ranmaoyin/models/llava-1.5-7b-hf --seed 42 --max_new_tokens 512 --experiment_name vcd_chair_20260319_134212 --do_sample --load_in_4bit --vcd_alpha 1.0 --vcd_beta 0.1 --vcd_noise_step 500 --run_chair_benchmark --coco_path /data1/ranmaoyin/dataset/coco2014/annotations --coco_file instances_val2014.json --coco_base_image_path /data1/ranmaoyin/dataset/coco2014/val2014 --chair_test_size 500
+[nltk_data] Downloading package punkt_tab to
+[nltk_data]     /home/ranmaoyin/nltk_data...
+[nltk_data]   Package punkt_tab is already up-to-date!
+[nltk_data] Downloading package averaged_perceptron_tagger_eng to
+[nltk_data]     /home/ranmaoyin/nltk_data...
+[nltk_data]   Package averaged_perceptron_tagger_eng is already up-to-
+[nltk_data]       date!
+[nltk_data] Downloading package wordnet to
+[nltk_data]     /home/ranmaoyin/nltk_data...
+[nltk_data]   Package wordnet is already up-to-date!
+[nltk_data] Downloading package punkt to /home/ranmaoyin/nltk_data...
+[nltk_data]   Package punkt is already up-to-date!
+[nltk_data] Downloading package averaged_perceptron_tagger to
+[nltk_data]     /home/ranmaoyin/nltk_data...
+[nltk_data]   Package averaged_perceptron_tagger is already up-to-
+[nltk_data]       date!
+[2026-03-19 13:42:17][INFO] EntropyGate experiment: vcd_chair_20260319_134212
+[2026-03-19 13:42:17][INFO] EntropyGate experiment: vcd_chair_20260319_134212
+[2026-03-19 13:42:17][INFO] Log file: /data1/ranmaoyin/EntropyGate/logs/vcd_chair_20260319_134212.log
+[2026-03-19 13:42:17][INFO] Log file: /data1/ranmaoyin/EntropyGate/logs/vcd_chair_20260319_134212.log
+[2026-03-19 13:42:17][INFO] Model: /data1/ranmaoyin/models/llava-1.5-7b-hf
+[2026-03-19 13:42:17][INFO] Model: /data1/ranmaoyin/models/llava-1.5-7b-hf
+[2026-03-19 13:42:17][INFO] Hyperparams: scheme=flat alpha_vis=1.0 alpha_txt=1.0 alpha_min_vis=0.0 alpha_min_txt=0.0 eta_vis=0.3 eta_txt=0.4 tau=0.05 gamma=0.01 beta_base=0.05 beta_range=0.15 theta_safe=0.99
+[2026-03-19 13:42:17][INFO] Hyperparams: scheme=flat alpha_vis=1.0 alpha_txt=1.0 alpha_min_vis=0.0 alpha_min_txt=0.0 eta_vis=0.3 eta_txt=0.4 tau=0.05 gamma=0.01 beta_base=0.05 beta_range=0.15 theta_safe=0.99
+[2026-03-19 13:42:17][INFO] Full args: {'method': 'vcd', 'model_name': '/data1/ranmaoyin/models/llava-1.5-7b-hf', 'load_in_8bit': False, 'load_in_4bit': True, 'do_sample': True, 'max_new_tokens': 512, 'temperature': 1, 'top_p': 0.9, 'top_k': 40, 'aggregate_layer_fast_v': 2, 'minumum_fast_v_tokens': 50, 'aggregate_layer_text_mask': 2, 'minimum_text_tokens': 50, 'alpha_base_vis': 1.0, 'alpha_base_txt': 1.0, 'alpha_min_vis': 0.0, 'alpha_min_txt': 0.0, 'eta_vis': 0.3, 'eta_txt': 0.4, 'tau_gate': 0.05, 'gamma_decay': 0.01, 'beta_base': 0.05, 'beta_range': 0.15, 'theta_safe': 0.99, 'eg_scheme': 'flat', 'beta_cutoff_fixed': 0.1, 'theta_safe_aligned': 0.95, 'time_decay_mode': 'multiply', 'alpha_time_txt': 1.0, 'adaptive_eta': False, 'eta_ema_momentum': 0.1, 'eta_vis_offset': 0.5, 'eta_txt_offset': 1.0, 'soft_suppress': False, 'soft_suppress_k': 4.0, 'lambda_lang_prior': 0.01, 'alpha_stat_bias': 1, 'beta_cutoff': 0.1, 'max_threshold_plausibility_constraint': 0.95, 'vcd_alpha': 1.0, 'vcd_beta': 0.1, 'vcd_noise_step': 500, 'vcd_eg_alpha_min': 0.5, 'vcd_eg_alpha_max': 1.5, 'seed': 42, 'experiment_name': 'vcd_chair_20260319_134212', 'run_mmmu_benchmark': False, 'mmmu_answer_file_path': 'benchmark/evaluators/mmmu/answer_dict_val.json', 'run_mathvista_benchmark': False, 'run_mme_benchmark': False, 'run_chair_benchmark': True, 'run_amber_benchmark': False, 'coco_path': '/data1/ranmaoyin/dataset/coco2014/annotations', 'coco_file': 'instances_val2014.json', 'coco_base_image_path': '/data1/ranmaoyin/dataset/coco2014/val2014', 'chair_test_size': 500, 'amber_query_file': '/data1/ranmaoyin/dataset/amber/data/query/query_generative.json', 'amber_image_dir': '/data1/ranmaoyin/dataset/amber/images', 'amber_official_repo_path': '/data1/ranmaoyin/dataset/amber/official_repo', 'amber_evaluation_type': 'g'}
+[2026-03-19 13:42:17][INFO] Full args: {'method': 'vcd', 'model_name': '/data1/ranmaoyin/models/llava-1.5-7b-hf', 'load_in_8bit': False, 'load_in_4bit': True, 'do_sample': True, 'max_new_tokens': 512, 'temperature': 1, 'top_p': 0.9, 'top_k': 40, 'aggregate_layer_fast_v': 2, 'minumum_fast_v_tokens': 50, 'aggregate_layer_text_mask': 2, 'minimum_text_tokens': 50, 'alpha_base_vis': 1.0, 'alpha_base_txt': 1.0, 'alpha_min_vis': 0.0, 'alpha_min_txt': 0.0, 'eta_vis': 0.3, 'eta_txt': 0.4, 'tau_gate': 0.05, 'gamma_decay': 0.01, 'beta_base': 0.05, 'beta_range': 0.15, 'theta_safe': 0.99, 'eg_scheme': 'flat', 'beta_cutoff_fixed': 0.1, 'theta_safe_aligned': 0.95, 'time_decay_mode': 'multiply', 'alpha_time_txt': 1.0, 'adaptive_eta': False, 'eta_ema_momentum': 0.1, 'eta_vis_offset': 0.5, 'eta_txt_offset': 1.0, 'soft_suppress': False, 'soft_suppress_k': 4.0, 'lambda_lang_prior': 0.01, 'alpha_stat_bias': 1, 'beta_cutoff': 0.1, 'max_threshold_plausibility_constraint': 0.95, 'vcd_alpha': 1.0, 'vcd_beta': 0.1, 'vcd_noise_step': 500, 'vcd_eg_alpha_min': 0.5, 'vcd_eg_alpha_max': 1.5, 'seed': 42, 'experiment_name': 'vcd_chair_20260319_134212', 'run_mmmu_benchmark': False, 'mmmu_answer_file_path': 'benchmark/evaluators/mmmu/answer_dict_val.json', 'run_mathvista_benchmark': False, 'run_mme_benchmark': False, 'run_chair_benchmark': True, 'run_amber_benchmark': False, 'coco_path': '/data1/ranmaoyin/dataset/coco2014/annotations', 'coco_file': 'instances_val2014.json', 'coco_base_image_path': '/data1/ranmaoyin/dataset/coco2014/val2014', 'chair_test_size': 500, 'amber_query_file': '/data1/ranmaoyin/dataset/amber/data/query/query_generative.json', 'amber_image_dir': '/data1/ranmaoyin/dataset/amber/images', 'amber_official_repo_path': '/data1/ranmaoyin/dataset/amber/official_repo', 'amber_evaluation_type': 'g'}
+Loading weights:   0%|          | 0/686 [00:00<?, ?it/s]Loading weights:   1%|          | 4/686 [00:00<00:29, 22.83it/s]Loading weights:   1%|          | 8/686 [00:00<00:24, 28.17it/s]Loading weights:   2%|▏         | 11/686 [00:00<00:37, 18.06it/s]Loading weights:   3%|▎         | 18/686 [00:00<00:24, 27.75it/s]Loading weights:   3%|▎         | 22/686 [00:00<00:23, 28.36it/s]Loading weights:   5%|▍         | 31/686 [00:00<00:15, 41.82it/s]Loading weights:   5%|▌         | 36/686 [00:01<00:15, 40.97it/s]Loading weights:   6%|▌         | 41/686 [00:01<00:15, 41.29it/s]Loading weights:   7%|▋         | 49/686 [00:01<00:14, 43.56it/s]Loading weights:   8%|▊         | 56/686 [00:01<00:13, 46.80it/s]Loading weights:   9%|▉         | 64/686 [00:01<00:12, 50.63it/s]Loading weights:  10%|█         | 70/686 [00:01<00:12, 48.93it/s]Loading weights:  11%|█         | 75/686 [00:01<00:15, 40.49it/s]Loading weights:  12%|█▏        | 80/686 [00:02<00:17, 35.26it/s]Loading weights:  14%|█▎        | 94/686 [00:02<00:10, 56.85it/s]Loading weights:  16%|█▌        | 110/686 [00:02<00:07, 79.74it/s]Loading weights:  18%|█▊        | 125/686 [00:02<00:05, 95.15it/s]Loading weights:  21%|██        | 141/686 [00:02<00:04, 109.54it/s]Loading weights:  24%|██▍       | 166/686 [00:02<00:03, 146.20it/s]Loading weights:  29%|██▉       | 198/686 [00:02<00:02, 192.11it/s]Loading weights:  34%|███▍      | 232/686 [00:02<00:01, 233.34it/s]Loading weights:  39%|███▉      | 266/686 [00:02<00:01, 260.55it/s]Loading weights:  45%|████▍     | 306/686 [00:03<00:01, 298.53it/s]Loading weights:  56%|█████▌    | 384/686 [00:03<00:00, 435.35it/s]Loading weights:  66%|██████▌   | 454/686 [00:03<00:00, 509.96it/s]Loading weights:  77%|███████▋  | 530/686 [00:03<00:00, 577.82it/s]Loading weights:  89%|████████▊ | 608/686 [00:03<00:00, 631.56it/s]Loading weights:  99%|█████████▉| 680/686 [00:03<00:00, 649.96it/s]Loading weights: 100%|██████████| 686/686 [00:03<00:00, 190.88it/s]
+Running Chair Benchmark. Process: 0:   0%|          | 0/500 [00:00<?, ?it/s]Running Chair Benchmark. Process: 0:   0%|          | 0/500 [00:00<?, ?it/s]
+Traceback (most recent call last):
+  File "/data1/ranmaoyin/EntropyGate/run_entropygate.py", line 673, in <module>
+    main()
+  File "/data1/ranmaoyin/EntropyGate/run_entropygate.py", line 345, in main
+    run_chair_benchmark(model, processor, args)
+  File "/data1/ranmaoyin/EntropyGate/run_entropygate.py", line 419, in run_chair_benchmark
+    output_ids = model.generate(**inputs, generation_config=generation_config)
+  File "/opt/micromamba/envs/rmy_RTX/lib/python3.10/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+    return func(*args, **kwargs)
+  File "/opt/micromamba/envs/rmy_RTX/lib/python3.10/site-packages/transformers/generation/utils.py", line 2352, in generate
+    self._validate_model_kwargs(model_kwargs.copy())
+  File "/opt/micromamba/envs/rmy_RTX/lib/python3.10/site-packages/transformers/generation/utils.py", line 1541, in _validate_model_kwargs
+    raise ValueError(
+ValueError: The following `model_kwargs` are not used by the model: ['pixel_values_cd'] (note: typos in the generate arguments will also show up in this list)

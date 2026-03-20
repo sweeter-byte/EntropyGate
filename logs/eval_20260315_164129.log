@@ -1,0 +1,24 @@
+============================================================
+EntropyGate Evaluation — 2026年 03月 15日 星期日 16:41:29 CST
+GPU: 5  |  Quantization: none
+Hyperparams: eta_vis=0.3 eta_txt=0.4 tau=0.05
+             alpha_vis=1.0 alpha_txt=1.0
+             gamma=0.01 beta_base=0.05 beta_range=0.15
+             theta_safe=0.99
+============================================================
+
+------------------------------------------------------------
+[llava-1.5-7b-hf] Benchmark: chair
+------------------------------------------------------------
+CMD: python3 /data1/ranmaoyin/EntropyGate/run_entropygate.py --model_name llava-hf/llava-1.5-7b-hf --seed 42 --max_new_tokens 512 --experiment_name eg_chair_20260315_164129 --alpha_base_vis 1.0 --alpha_base_txt 1.0 --eta_vis 0.3 --eta_txt 0.4 --tau_gate 0.05 --gamma_decay 0.01 --beta_base 0.05 --beta_range 0.15 --theta_safe 0.99 --run_chair_benchmark --coco_path /data1/ranmaoyin/EntropyGate/dataset/annotations --coco_file instances_val2014.json --coco_base_image_path /data1/ranmaoyin/EntropyGate/dataset/val2014 --chair_test_size 500
+
+Traceback (most recent call last):
+  File "/data1/ranmaoyin/EntropyGate/run_entropygate.py", line 1, in <module>
+    from methods.entropygate_method import patch_everything
+  File "/data1/ranmaoyin/EntropyGate/methods/entropygate_method.py", line 1, in <module>
+    from methods.samplers.entropygate_sample import patch_entropygate_sampling
+  File "/data1/ranmaoyin/EntropyGate/methods/samplers/entropygate_sample.py", line 25, in <module>
+    from methods.generation_configs.entropygate_generation_config import GenerationConfigEntropyGate
+  File "/data1/ranmaoyin/EntropyGate/methods/generation_configs/entropygate_generation_config.py", line 3, in <module>
+    from constants.crops_constants import (
+ModuleNotFoundError: No module named 'constants.crops_constants'
