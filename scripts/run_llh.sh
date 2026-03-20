@@ -44,17 +44,20 @@ TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 LOG_FILE="${LOG_DIR}/llh_${TIMESTAMP}.log"
 
 # Configs: (llh_hidden_alpha_base, llh_hidden_alpha_min, llh_hidden_eta, llh_hidden_tau)
+# LLH has double entropy gating: stage 1 (hidden) uses H_t, stage 2 (logit)
+# uses H_corrected.  LASER's insight: higher η means the gate only fires for
+# truly confused tokens, preserving model confidence on easy tokens.
 CONFIGS=(
-    # J1: moderate [0.3, 1.0]
+    # J1: moderate [0.3, 1.0], low η
     "1.0 0.3 0.10 0.05"
-    # J2: wide [0.3, 1.5]
+    # J2: wide [0.3, 1.5], low η
     "1.5 0.3 0.10 0.05"
-    # J3: match E5 range [0.5, 1.5]
+    # J3: match E5 range [0.5, 1.5], low η
     "1.5 0.5 0.10 0.05"
-    # J4: aggressive [0.5, 2.0]
-    "2.0 0.5 0.10 0.05"
-    # J5: strong floor [0.8, 1.5]
-    "1.5 0.8 0.10 0.05"
+    # J4: wide [0.3, 1.5], LASER-inspired η=0.30
+    "1.5 0.3 0.30 0.10"
+    # J5: moderate [0.3, 1.0], LASER-inspired η=0.50 (high threshold)
+    "1.0 0.3 0.50 0.15"
 )
 
 echo "============================================================" | tee -a "${LOG_FILE}"

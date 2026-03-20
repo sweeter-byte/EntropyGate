@@ -9,7 +9,9 @@ set -euo pipefail
 # time decay).  RMSNorm after contrast introduces non-linearity, making
 # this different from logit-space contrast.
 #
-# Sweeps hsc_alpha_base and hsc_alpha_min to find the optimal range.
+# Sweeps hsc_alpha_base/hsc_alpha_min range and η threshold.
+# Includes LASER-inspired configs (arxiv 2601.06803) with higher η
+# to test "intervene only when confused" vs always-on intervention.
 # =============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,17 +42,20 @@ TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 LOG_FILE="${LOG_DIR}/hsc_${TIMESTAMP}.log"
 
 # Configs: (hsc_alpha_base, hsc_alpha_min, hsc_eta, hsc_tau)
+# η=0.10 → gate saturates early (always-on intervention)
+# η=0.30 → LASER-inspired: intervene mainly when H_t > 0.3 (moderate confusion)
+# η=0.50 → LASER-inspired: intervene only when truly confused
 CONFIGS=(
-    # H1: moderate range [0.3, 1.0]
+    # H1: moderate range [0.3, 1.0], low η
     "1.0 0.3 0.10 0.05"
-    # H2: wide range [0.3, 1.5] — aggressive at high entropy
+    # H2: wide range [0.3, 1.5], low η — aggressive at high entropy
     "1.5 0.3 0.10 0.05"
-    # H3: narrow high [0.5, 1.0]
-    "1.0 0.5 0.10 0.05"
-    # H4: very wide [0.5, 2.0]
-    "2.0 0.5 0.10 0.05"
-    # H5: match E5 range [0.5, 1.5]
+    # H3: match E5 range [0.5, 1.5], low η
     "1.5 0.5 0.10 0.05"
+    # H4: wide range [0.3, 1.5], LASER-inspired η=0.30 (intervene when confused)
+    "1.5 0.3 0.30 0.10"
+    # H5: moderate range [0.3, 1.0], LASER-inspired η=0.50 (high threshold)
+    "1.0 0.3 0.50 0.15"
 )
 
 echo "============================================================" | tee -a "${LOG_FILE}"

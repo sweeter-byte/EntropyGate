@@ -1,5 +1,12 @@
 # ---- Latent-space method hyperparameters ----
 # Shared by HSC, LEG, LLH methods
+#
+# NOTE on entropy threshold (η):
+# LASER (arxiv 2601.06803) uses η=0.8 (normalized entropy) for intervention,
+# only acting when the model is truly confused.  Our default η=0.10 is more
+# aggressive (gate saturates at H_t ≈ 0.25).  Sweeps should explore both
+# regimes: low η (aggressive, always-on) and high η (LASER-inspired,
+# intervene-only-when-confused).
 
 # HSC (Hidden State Contrastive): contrast in hidden state space
 # then project back via norm + lm_head.

@@ -46,6 +46,10 @@ LOG_FILE="${LOG_DIR}/leg_${TIMESTAMP}.log"
 #   -8 = layer ~25 output (close to output)
 #   -16 = layer ~17 output (middle)
 #   -24 = layer ~9 output (early-mid)
+#
+# LASER-inspired insight: mid-layer hidden states carry different uncertainty
+# signals than output logits.  Higher η tests whether mid-layer entropy
+# should trigger intervention only for genuinely confused positions.
 CONFIGS=(
     # L1: mid-layer (-16), match E5 params [0.5, 1.5]
     "-16 1.5 0.5 0.10 0.05"
@@ -53,10 +57,11 @@ CONFIGS=(
     "-24 1.5 0.5 0.10 0.05"
     # L3: near-output (-8), match E5 params
     "-8 1.5 0.5 0.10 0.05"
-    # L4: output entropy baseline (-1), should be ~same as E5
-    "-1 1.5 0.5 0.10 0.05"
-    # L5: mid-layer (-16), wider range [0.3, 2.0]
+    # L4: mid-layer (-16), wider range [0.3, 2.0]
     "-16 2.0 0.3 0.10 0.05"
+    # L5: mid-layer (-16), LASER-inspired η=0.30 — mid-layer entropy is
+    #     typically higher than output entropy, so a higher threshold is natural
+    "-16 1.5 0.3 0.30 0.10"
 )
 
 echo "============================================================" | tee -a "${LOG_FILE}"
