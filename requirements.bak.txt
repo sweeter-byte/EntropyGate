@@ -1,0 +1,51 @@
+# =============================================================================
+# EntropyGate - Requirements
+# Target hardware: NVIDIA L40S (Ada Lovelace, compute capability 8.9, 46GB)
+# Requires: CUDA >= 11.8, Python >= 3.10
+# =============================================================================
+#
+# IMPORTANT: Install PyTorch FIRST with the correct CUDA version for L40S.
+# Do NOT install torch from this file — use the commands below instead.
+#
+# Step 1: Create conda environment
+#   conda create -n entropygate python=3.10 -y
+#   conda activate entropygate
+#
+# Step 2: Install PyTorch with CUDA 12.1 (recommended for L40S)
+#   pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu121
+#
+#   Or if your driver supports CUDA 12.4:
+#   pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu124
+#
+# Step 3: Install remaining dependencies
+#   pip install -r requirements.txt
+#
+# Step 4 (optional): Install flash-attention for faster inference
+#   Recommended (pre-built wheel, avoids cross-device link error):
+#   pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.5cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+#   Or build from source (must give --cache-dir a path, e.g. /tmp/pip_cache):
+#   pip install flash-attn --no-build-isolation --cache-dir /tmp/pip_cache
+#
+# =============================================================================
+
+# Core runtime (torch should already be installed via Step 2)
+transformers>=4.45.0
+accelerate>=0.25.0
+safetensors>=0.4.3
+sentencepiece>=0.2.0
+packaging>=24.0
+
+# Vision / image processing
+pillow>=10.0.0
+
+# Evaluation benchmarks & data
+datasets>=2.16.0
+numpy>=1.24.0
+tqdm>=4.66.0
+
+# Low-memory loading (quantization support for L40S)
+bitsandbytes>=0.43.1
+
+# CHAIR evaluation dependencies
+nltk>=3.8.0
+spacy>=3.5.0

@@ -1,0 +1,60 @@
+# =============================================================================
+# EntropyGate - Requirements
+#
+# Supported hardware:
+#   - NVIDIA L40S (Ada Lovelace, sm_89, 46GB)  — CUDA >= 11.8
+#   - NVIDIA RTX PRO 6000 Blackwell (sm_120, 96GB) — CUDA >= 12.8
+#
+# Requires: Python >= 3.10
+# =============================================================================
+#
+# IMPORTANT: Install PyTorch FIRST with the correct CUDA version.
+# Do NOT install torch from this file — use the commands below instead.
+#
+# Step 1: Create conda environment
+#   conda create -n entropygate python=3.10 -y
+#   conda activate entropygate
+#
+# Step 2: Install PyTorch
+#
+#   --- For L40S (Ada Lovelace) ---
+#   pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu121
+#
+#   --- For RTX PRO 6000 Blackwell (sm_120, Driver 580+, CUDA 13.0) ---
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+#   (Requires PyTorch >= 2.7 with cu128; sm_120 kernels are NOT in cu121/cu124 builds)
+#
+# Step 3: Install remaining dependencies
+#   pip install -r requirements.txt
+#
+# Step 4 (optional): Install flash-attention for faster inference
+#   For L40S:
+#     pip install flash-attn --no-build-isolation
+#   For Blackwell:
+#     pip install flash-attn --no-build-isolation
+#     (Must build from source; pre-built wheels may not include sm_120 yet)
+#
+# =============================================================================
+
+# Core runtime (torch should already be installed via Step 2)
+transformers>=4.48.0
+accelerate>=0.30.0
+safetensors>=0.4.3
+sentencepiece>=0.2.0
+packaging>=24.0
+
+# Vision / image processing
+pillow>=10.0.0
+
+# Evaluation benchmarks & data
+datasets>=2.16.0
+numpy>=1.24.0
+tqdm>=4.66.0
+
+# Low-memory loading (quantization)
+# Blackwell (sm_120) requires bitsandbytes >= 0.45.0
+bitsandbytes>=0.45.0
+
+# CHAIR evaluation dependencies
+nltk>=3.8.0
+spacy>=3.5.0
