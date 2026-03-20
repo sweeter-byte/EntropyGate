@@ -100,6 +100,17 @@ hf_logging.set_verbosity_error()
 distributed_state = PartialState()
 
 
+def _model_slug(model_name: str) -> str:
+    """Convert model name/path to a safe directory name.
+
+    Strips leading/trailing slashes to avoid empty segments, then joins with '--'.
+    e.g. '/data1/models/llava-7b' -> 'data1--models--llava-7b'
+         'llava-hf/llava-1.5-7b-hf' -> 'llava-hf--llava-1.5-7b-hf'
+    """
+    return "--".join(part for part in model_name.split("/") if part)
+
+
+
 def args_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--method", type=str, default="entropygate",
@@ -456,7 +467,7 @@ def _build_full_inputs(processor, image, text, device):
 
 
 def run_chair_benchmark(model, processor, args):
-    experiment_name = os.path.join("experiments", "--".join(args.model_name.split("/")), "EntropyGate", args.experiment_name)
+    experiment_name = os.path.join("experiments", _model_slug(args.model_name), "EntropyGate", args.experiment_name)
     os.makedirs(experiment_name, exist_ok=True)
 
     chair_benchmark = ChairBenchmarkDataset(
@@ -515,7 +526,7 @@ def run_chair_benchmark(model, processor, args):
 def run_amber_benchmark(model, processor, args):
     experiment_name = os.path.join(
         "experiments",
-        "--".join(args.model_name.split("/")),
+        _model_slug(args.model_name),
         "EntropyGate",
         "AMBER",
         args.experiment_name,
@@ -598,7 +609,7 @@ def run_amber_benchmark(model, processor, args):
         print(evaluation_output)
 
 def run_mme_benchmark(model, processor, args):
-    experiment_name = os.path.join("experiments", "--".join(args.model_name.split("/")), "EntropyGate", "MME", args.experiment_name)
+    experiment_name = os.path.join("experiments", _model_slug(args.model_name), "EntropyGate", "MME", args.experiment_name)
     os.makedirs(experiment_name, exist_ok=True)
 
     mme_dataset = load_dataset("darkyarding/MME")["test"]
@@ -630,41 +641,44 @@ def run_mme_benchmark(model, processor, args):
             })
 
             del output_ids, inputs, input_ids_lang_prior
-            torch.cuda.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             gc.collect()
 
-    question_pairs = defaultdict(list)
-    for res in results:
-        question_pairs[res["question_id"]].append(res)
+    results = gather_object(results)
+    if distributed_state.is_main_process:
+        question_pairs = defaultdict(list)
+        for res in results:
+            question_pairs[res["question_id"]].append(res)
 
-    category2score = defaultdict(list)
-    for question_id, samples in question_pairs.items():
-        assert len(samples) == 2, f"Question ID {question_id} does not have a pair!"
-        score_1 = 1.0 if samples[0]["pred_ans"] == samples[0]["gt_ans"] else 0.0
-        score_2 = 1.0 if samples[1]["pred_ans"] == samples[1]["gt_ans"] else 0.0
-        acc = (score_1 + score_2) / 2 * 100.0
-        acc_plus = 100.0 if score_1 == 1.0 and score_2 == 1.0 else 0.0
-        category2score[samples[0]["category"]].append(acc + acc_plus)
+        category2score = defaultdict(list)
+        for question_id, samples in question_pairs.items():
+            assert len(samples) == 2, f"Question ID {question_id} does not have a pair!"
+            score_1 = 1.0 if samples[0]["pred_ans"] == samples[0]["gt_ans"] else 0.0
+            score_2 = 1.0 if samples[1]["pred_ans"] == samples[1]["gt_ans"] else 0.0
+            acc = (score_1 + score_2) / 2 * 100.0
+            acc_plus = 100.0 if score_1 == 1.0 and score_2 == 1.0 else 0.0
+            category2score[samples[0]["category"]].append(acc + acc_plus)
 
-    category2avg_score = {cat: sum(s) / len(s) for cat, s in category2score.items()}
-    perception_score = sum(category2avg_score[cat] for cat in eval_type_dict["Perception"])
-    cognition_score = sum(category2avg_score[cat] for cat in eval_type_dict["Cognition"])
+        category2avg_score = {cat: sum(s) / len(s) for cat, s in category2score.items()}
+        perception_score = sum(category2avg_score[cat] for cat in eval_type_dict["Perception"])
+        cognition_score = sum(category2avg_score[cat] for cat in eval_type_dict["Cognition"])
 
-    with open(os.path.join(experiment_name, 'mme_results.txt'), "a") as f:
-        f.write(f"{args}\n")
-        f.write("=========== Perception ===========\n")
-        f.write(f"total score: {perception_score:.2f}\n\n")
-        for category in eval_type_dict["Perception"]:
-            f.write(f"\t {category}  score: {category2avg_score[category]:.2f}\n")
-        f.write("\n=========== Cognition ===========\n")
-        f.write(f"total score: {cognition_score:.2f}\n\n")
-        for category in eval_type_dict["Cognition"]:
-            f.write(f"\t {category}  score: {category2avg_score[category]:.2f}\n")
+        with open(os.path.join(experiment_name, 'mme_results.txt'), "a") as f:
+            f.write(f"{args}\n")
+            f.write("=========== Perception ===========\n")
+            f.write(f"total score: {perception_score:.2f}\n\n")
+            for category in eval_type_dict["Perception"]:
+                f.write(f"\t {category}  score: {category2avg_score[category]:.2f}\n")
+            f.write("\n=========== Cognition ===========\n")
+            f.write(f"total score: {cognition_score:.2f}\n\n")
+            for category in eval_type_dict["Cognition"]:
+                f.write(f"\t {category}  score: {category2avg_score[category]:.2f}\n")
 
-    print("MME evaluation complete. Results saved.")
+        print("MME evaluation complete. Results saved.")
 
 def run_mathvista_benchmark(model, processor, args):
-    experiment_name = os.path.join("experiments", "--".join(args.model_name.split("/")), "EntropyGate", "MathVista", args.experiment_name)
+    experiment_name = os.path.join("experiments", _model_slug(args.model_name), "EntropyGate", "MathVista", args.experiment_name)
     os.makedirs(experiment_name, exist_ok=True)
 
     data_list = load_dataset('AI4Math/MathVista', split='testmini')
@@ -703,7 +717,7 @@ def run_mathvista_benchmark(model, processor, args):
 def run_mmmu_benchmark(model, processor, args):
     if not _HAS_MMMU:
         raise ImportError("benchmark.mmmu_utils not found. Please ensure mmmu_utils.py is available to run MMMU benchmark.")
-    experiment_name = os.path.join("experiments", "--".join(args.model_name.split("/")), "MMMU", "EntropyGate", args.experiment_name)
+    experiment_name = os.path.join("experiments", _model_slug(args.model_name), "MMMU", "EntropyGate", args.experiment_name)
     os.makedirs(experiment_name, exist_ok=True)
 
     sub_dataset_list = []
@@ -714,8 +728,8 @@ def run_mmmu_benchmark(model, processor, args):
     data_list = list(dataset)
     image_token_ids = get_image_token_id(args.model_name)
 
+    out_samples_list = []
     with distributed_state.split_between_processes(data_list) as process_data_list:
-        out_samples = dict()
         for sample in tqdm(process_data_list, total=len(process_data_list), desc=f"Running MMMU Benchmark. Process: {distributed_state.process_index}"):
             sample = process_single_sample(sample)
             sample = construct_prompt(sample)
@@ -732,15 +746,18 @@ def run_mmmu_benchmark(model, processor, args):
             with torch.no_grad():
                 output_ids = model.generate(**inputs, generation_config=generation_config)
             output_text = processor.decode(output_ids[0][len(inputs["input_ids"][0]):], skip_special_tokens=True)
-            out_samples[sample['id']] = output_text
+            out_samples_list.append({"id": sample['id'], "output": output_text})
 
-    output_path = os.path.join(experiment_name, 'mmmu_answers.json')
-    with open(output_path, 'w') as f:
-        json.dump(out_samples, f, indent=4)
+    out_samples_list = gather_object(out_samples_list)
+    if distributed_state.is_main_process:
+        out_samples = {item["id"]: item["output"] for item in out_samples_list}
+        output_path = os.path.join(experiment_name, 'mmmu_answers.json')
+        with open(output_path, 'w') as f:
+            json.dump(out_samples, f, indent=4)
 
-    results = evaluate_mmmu(output_path, args.mmmu_answer_file_path)
-    with open(os.path.join(experiment_name, 'evaluation_results.json'), 'w') as f:
-        json.dump(results, f, indent=4)
+        results = evaluate_mmmu(output_path, args.mmmu_answer_file_path)
+        with open(os.path.join(experiment_name, 'evaluation_results.json'), 'w') as f:
+            json.dump(results, f, indent=4)
 
 
 if __name__ == "__main__":

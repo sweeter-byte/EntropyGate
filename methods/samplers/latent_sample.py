@@ -263,6 +263,10 @@ def latent_sample(
         hidden_alpha_min = generation_config.llh_hidden_alpha_min
         hidden_eta = generation_config.llh_hidden_eta
         hidden_tau = generation_config.llh_hidden_tau
+    else:
+        raise ValueError(
+            f"Unknown latent_method={latent_method!r}. Must be one of: hsc, leg, llh"
+        )
 
     # Which passes need hidden states
     need_hidden_orig = True   # all methods need hidden state from orig pass
@@ -403,21 +407,22 @@ def latent_sample(
         else:
             # Dispatch to method-specific core logic
             if latent_method == "hsc":
-                final_logits, g_vis, g_txt = _hsc_core(
+                # _hsc_core returns (final, g_vis, time_mult)
+                final_logits, g_vis, g_aux = _hsc_core(
                     self, next_token_logits, next_token_logits_lang_prior,
                     h_orig, h_stat, H_t,
                     alpha_base, alpha_min, eta, tau,
                     gamma_decay, beta_cutoff_fixed, time_step)
 
             elif latent_method == "leg":
-                final_logits, g_vis, g_txt = _leg_core(
+                final_logits, g_vis, g_aux = _leg_core(
                     self, next_token_logits, next_token_logits_lang_prior,
                     next_token_logits_stat_bias, h_orig,
                     alpha_base, alpha_min, eta, tau,
                     gamma_decay, beta_cutoff_fixed, time_step)
 
             elif latent_method == "llh":
-                final_logits, g_vis, g_txt = _llh_core(
+                final_logits, g_vis, g_aux = _llh_core(
                     self, next_token_logits, next_token_logits_lang_prior,
                     h_orig, h_stat, H_t,
                     hidden_alpha_base, hidden_alpha_min, hidden_eta, hidden_tau,
@@ -426,11 +431,11 @@ def latent_sample(
             _log_gate_count += 1
             _log_H_vals.append(H_t.item())
             _log_g_vis_vals.append(g_vis.item() if torch.is_tensor(g_vis) else g_vis)
-            _log_g_txt_vals.append(g_txt.item() if torch.is_tensor(g_txt) else g_txt)
+            _log_g_txt_vals.append(g_aux.item() if torch.is_tensor(g_aux) else g_aux)
             logger.debug(
                 f"step={time_step:03d} H_t={H_t.item():.4f} "
                 f"g_vis={g_vis.item() if torch.is_tensor(g_vis) else g_vis:.4f} "
-                f"g_txt={g_txt.item() if torch.is_tensor(g_txt) else g_txt:.4f} "
+                f"g_aux={g_aux.item() if torch.is_tensor(g_aux) else g_aux:.4f} "
                 f"method={latent_method}"
             )
 
@@ -476,11 +481,11 @@ def latent_sample(
     if total_steps > 0 and _log_H_vals:
         avg_H = sum(_log_H_vals) / len(_log_H_vals)
         avg_g_vis = sum(_log_g_vis_vals) / len(_log_g_vis_vals)
-        avg_g_txt = sum(_log_g_txt_vals) / len(_log_g_txt_vals)
+        avg_g_aux = sum(_log_g_txt_vals) / len(_log_g_txt_vals)
         skip_rate = _log_skip_count / total_steps
         logger.info(
             f"[{latent_method}_summary] steps={total_steps} "
-            f"avg_H={avg_H:.4f} avg_g_vis={avg_g_vis:.4f} avg_g_txt={avg_g_txt:.4f} "
+            f"avg_H={avg_H:.4f} avg_g_vis={avg_g_vis:.4f} avg_g_aux={avg_g_aux:.4f} "
             f"skip_rate={skip_rate:.2%} ({_log_skip_count}/{total_steps})"
         )
 

@@ -29,7 +29,7 @@ LOG_DIR="${PROJECT_ROOT}/logs"
 
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export TOKENIZERS_PARALLELISM=false
-export CUDA_VISIBLE_DEVICES=$GPU_ID
+export CUDA_VISIBLE_DEVICES="${GPU_ID}"
 export PYTHONPATH="${PYTHONPATH:-}:${PROJECT_ROOT}"
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 export HF_HOME="${HF_HOME:-${HOME}/.cache/huggingface}"
