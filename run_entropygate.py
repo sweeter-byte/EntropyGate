@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from methods.generation_configs.entropygate_generation_config import GenerationConfigEntropyGate
 from methods.generation_configs.contrastive_generation_config import GenerationConfigContrastive
+from methods.generation_configs.latent_generation_config import GenerationConfigLatent
 
 from constants.vcd_constants import (
     DEFAULT_VCD_ALPHA,
@@ -47,6 +48,19 @@ from constants.crops_constants import (
     DEFAULT_MAX_THRESHOLD_PLAUSIBILITY_CONSTRAINT,
 )
 
+from constants.latent_constants import (
+    DEFAULT_HSC_ALPHA_BASE,
+    DEFAULT_HSC_ALPHA_MIN,
+    DEFAULT_HSC_ETA,
+    DEFAULT_HSC_TAU,
+    DEFAULT_LEG_HIDDEN_LAYER,
+    DEFAULT_LLH_HIDDEN_ALPHA_BASE,
+    DEFAULT_LLH_HIDDEN_ALPHA_MIN,
+    DEFAULT_LLH_HIDDEN_ETA,
+    DEFAULT_LLH_HIDDEN_TAU,
+    DEFAULT_LATENT_METHOD,
+)
+
 from constants.image_token_constants import get_image_token_id
 
 from constants.default_generation_constants import (
@@ -86,11 +100,22 @@ hf_logging.set_verbosity_error()
 distributed_state = PartialState()
 
 
+def _model_slug(model_name: str) -> str:
+    """Convert model name/path to a safe directory name.
+
+    Strips leading/trailing slashes to avoid empty segments, then joins with '--'.
+    e.g. '/data1/models/llava-7b' -> 'data1--models--llava-7b'
+         'llava-hf/llava-1.5-7b-hf' -> 'llava-hf--llava-1.5-7b-hf'
+    """
+    return "--".join(part for part in model_name.split("/") if part)
+
+
+
 def args_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--method", type=str, default="entropygate",
-                        choices=["vanilla", "crops", "entropygate", "vcd", "vcd_eg"],
-                        help="Decoding method: vanilla, crops, entropygate, vcd (original VCD), vcd_eg (VCD+EntropyGate)")
+                        choices=["vanilla", "crops", "entropygate", "vcd", "vcd_eg", "latent"],
+                        help="Decoding method: vanilla, crops, entropygate, vcd, vcd_eg, latent (HSC/LEG/LLH)")
     parser.add_argument("--model_name", type=str, default="llava-hf/llava-1.5-7b-hf")
     parser.add_argument("--load_in_8bit", action='store_true', default=False)
     parser.add_argument("--load_in_4bit", action='store_true', default=False)
@@ -152,6 +177,25 @@ def args_parser():
     # VCD+EntropyGate config (reuses eta_vis, tau_gate from EntropyGate)
     parser.add_argument("--vcd_eg_alpha_min", type=float, default=0.5)
     parser.add_argument("--vcd_eg_alpha_max", type=float, default=1.5)
+
+    # Latent-space method config (HSC/LEG/LLH)
+    parser.add_argument("--latent_method", type=str, default=DEFAULT_LATENT_METHOD,
+                        choices=["hsc", "leg", "llh"],
+                        help="Latent method: hsc (Hidden State Contrastive), leg (Latent Entropy Gate), llh (Latent-Logit Hybrid)")
+    # HSC params
+    parser.add_argument("--hsc_alpha_base", type=float, default=DEFAULT_HSC_ALPHA_BASE)
+    parser.add_argument("--hsc_alpha_min", type=float, default=DEFAULT_HSC_ALPHA_MIN)
+    parser.add_argument("--hsc_eta", type=float, default=DEFAULT_HSC_ETA)
+    parser.add_argument("--hsc_tau", type=float, default=DEFAULT_HSC_TAU)
+    # LEG params
+    parser.add_argument("--leg_hidden_layer", type=int, default=DEFAULT_LEG_HIDDEN_LAYER,
+                        help="Index into outputs.hidden_states for LEG entropy. "
+                             "-16 = roughly mid-layer for 32-layer models.")
+    # LLH params
+    parser.add_argument("--llh_hidden_alpha_base", type=float, default=DEFAULT_LLH_HIDDEN_ALPHA_BASE)
+    parser.add_argument("--llh_hidden_alpha_min", type=float, default=DEFAULT_LLH_HIDDEN_ALPHA_MIN)
+    parser.add_argument("--llh_hidden_eta", type=float, default=DEFAULT_LLH_HIDDEN_ETA)
+    parser.add_argument("--llh_hidden_tau", type=float, default=DEFAULT_LLH_HIDDEN_TAU)
 
     # Evaluation config
     parser.add_argument("--seed", type=int, default=42)
@@ -261,6 +305,34 @@ def make_generation_config(args, image_tokens, input_ids_lang_prior):
             max_threshold_plausibility_constraint=args.max_threshold_plausibility_constraint,
         )
 
+    if args.method == "latent":
+        return GenerationConfigLatent(
+            **common_kwargs,
+            **shared_kwargs,
+            # EntropyGate params (reused by LEG)
+            alpha_base_vis=args.alpha_base_vis,
+            alpha_min_vis=args.alpha_min_vis,
+            eta_vis=args.eta_vis,
+            tau_gate=args.tau_gate,
+            gamma_decay=args.gamma_decay,
+            beta_cutoff_fixed=args.beta_cutoff_fixed,
+            theta_safe=args.theta_safe,
+            # HSC params
+            hsc_alpha_base=args.hsc_alpha_base,
+            hsc_alpha_min=args.hsc_alpha_min,
+            hsc_eta=args.hsc_eta,
+            hsc_tau=args.hsc_tau,
+            # LEG params
+            leg_hidden_layer=args.leg_hidden_layer,
+            # LLH params
+            llh_hidden_alpha_base=args.llh_hidden_alpha_base,
+            llh_hidden_alpha_min=args.llh_hidden_alpha_min,
+            llh_hidden_eta=args.llh_hidden_eta,
+            llh_hidden_tau=args.llh_hidden_tau,
+            # Method selector
+            latent_method=args.latent_method,
+        )
+
     # entropygate (default)
     return GenerationConfigEntropyGate(
         **common_kwargs,
@@ -304,6 +376,9 @@ def main():
     elif args.method in ("vcd", "vcd_eg"):
         from methods.vcd_method import patch_everything_vcd
         patch_everything_vcd()
+    elif args.method == "latent":
+        from methods.latent_method import patch_everything_latent
+        patch_everything_latent()
     # vanilla: no patching needed
 
     # Setup logging
@@ -311,13 +386,22 @@ def main():
     eg_logger.info(f"EntropyGate experiment: {args.experiment_name}")
     eg_logger.info(f"Log file: {log_file}")
     eg_logger.info(f"Model: {args.model_name}")
-    eg_logger.info(
-        f"Hyperparams: scheme={args.eg_scheme} alpha_vis={args.alpha_base_vis} alpha_txt={args.alpha_base_txt} "
-        f"alpha_min_vis={args.alpha_min_vis} alpha_min_txt={args.alpha_min_txt} "
-        f"eta_vis={args.eta_vis} eta_txt={args.eta_txt} tau={args.tau_gate} "
-        f"gamma={args.gamma_decay} beta_base={args.beta_base} beta_range={args.beta_range} "
-        f"theta_safe={args.theta_safe}"
-    )
+    if args.method == "latent":
+        eg_logger.info(
+            f"Hyperparams: latent_method={args.latent_method} "
+            f"hsc_alpha=[{args.hsc_alpha_min},{args.hsc_alpha_base}] hsc_eta={args.hsc_eta} hsc_tau={args.hsc_tau} "
+            f"leg_hidden_layer={args.leg_hidden_layer} "
+            f"llh_alpha=[{args.llh_hidden_alpha_min},{args.llh_hidden_alpha_base}] "
+            f"gamma={args.gamma_decay} beta_cutoff={args.beta_cutoff_fixed} theta_safe={args.theta_safe}"
+        )
+    else:
+        eg_logger.info(
+            f"Hyperparams: scheme={args.eg_scheme} alpha_vis={args.alpha_base_vis} alpha_txt={args.alpha_base_txt} "
+            f"alpha_min_vis={args.alpha_min_vis} alpha_min_txt={args.alpha_min_txt} "
+            f"eta_vis={args.eta_vis} eta_txt={args.eta_txt} tau={args.tau_gate} "
+            f"gamma={args.gamma_decay} beta_base={args.beta_base} beta_range={args.beta_range} "
+            f"theta_safe={args.theta_safe}"
+        )
     eg_logger.info(f"Full args: {vars(args)}")
 
     if args.load_in_8bit:
@@ -383,7 +467,7 @@ def _build_full_inputs(processor, image, text, device):
 
 
 def run_chair_benchmark(model, processor, args):
-    experiment_name = os.path.join("experiments", "--".join(args.model_name.split("/")), "EntropyGate", args.experiment_name)
+    experiment_name = os.path.join("experiments", _model_slug(args.model_name), "EntropyGate", args.experiment_name)
     os.makedirs(experiment_name, exist_ok=True)
 
     chair_benchmark = ChairBenchmarkDataset(
@@ -442,7 +526,7 @@ def run_chair_benchmark(model, processor, args):
 def run_amber_benchmark(model, processor, args):
     experiment_name = os.path.join(
         "experiments",
-        "--".join(args.model_name.split("/")),
+        _model_slug(args.model_name),
         "EntropyGate",
         "AMBER",
         args.experiment_name,
@@ -525,7 +609,7 @@ def run_amber_benchmark(model, processor, args):
         print(evaluation_output)
 
 def run_mme_benchmark(model, processor, args):
-    experiment_name = os.path.join("experiments", "--".join(args.model_name.split("/")), "EntropyGate", "MME", args.experiment_name)
+    experiment_name = os.path.join("experiments", _model_slug(args.model_name), "EntropyGate", "MME", args.experiment_name)
     os.makedirs(experiment_name, exist_ok=True)
 
     mme_dataset = load_dataset("darkyarding/MME")["test"]
@@ -557,41 +641,44 @@ def run_mme_benchmark(model, processor, args):
             })
 
             del output_ids, inputs, input_ids_lang_prior
-            torch.cuda.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             gc.collect()
 
-    question_pairs = defaultdict(list)
-    for res in results:
-        question_pairs[res["question_id"]].append(res)
+    results = gather_object(results)
+    if distributed_state.is_main_process:
+        question_pairs = defaultdict(list)
+        for res in results:
+            question_pairs[res["question_id"]].append(res)
 
-    category2score = defaultdict(list)
-    for question_id, samples in question_pairs.items():
-        assert len(samples) == 2, f"Question ID {question_id} does not have a pair!"
-        score_1 = 1.0 if samples[0]["pred_ans"] == samples[0]["gt_ans"] else 0.0
-        score_2 = 1.0 if samples[1]["pred_ans"] == samples[1]["gt_ans"] else 0.0
-        acc = (score_1 + score_2) / 2 * 100.0
-        acc_plus = 100.0 if score_1 == 1.0 and score_2 == 1.0 else 0.0
-        category2score[samples[0]["category"]].append(acc + acc_plus)
+        category2score = defaultdict(list)
+        for question_id, samples in question_pairs.items():
+            assert len(samples) == 2, f"Question ID {question_id} does not have a pair!"
+            score_1 = 1.0 if samples[0]["pred_ans"] == samples[0]["gt_ans"] else 0.0
+            score_2 = 1.0 if samples[1]["pred_ans"] == samples[1]["gt_ans"] else 0.0
+            acc = (score_1 + score_2) / 2 * 100.0
+            acc_plus = 100.0 if score_1 == 1.0 and score_2 == 1.0 else 0.0
+            category2score[samples[0]["category"]].append(acc + acc_plus)
 
-    category2avg_score = {cat: sum(s) / len(s) for cat, s in category2score.items()}
-    perception_score = sum(category2avg_score[cat] for cat in eval_type_dict["Perception"])
-    cognition_score = sum(category2avg_score[cat] for cat in eval_type_dict["Cognition"])
+        category2avg_score = {cat: sum(s) / len(s) for cat, s in category2score.items()}
+        perception_score = sum(category2avg_score[cat] for cat in eval_type_dict["Perception"])
+        cognition_score = sum(category2avg_score[cat] for cat in eval_type_dict["Cognition"])
 
-    with open(os.path.join(experiment_name, 'mme_results.txt'), "a") as f:
-        f.write(f"{args}\n")
-        f.write("=========== Perception ===========\n")
-        f.write(f"total score: {perception_score:.2f}\n\n")
-        for category in eval_type_dict["Perception"]:
-            f.write(f"\t {category}  score: {category2avg_score[category]:.2f}\n")
-        f.write("\n=========== Cognition ===========\n")
-        f.write(f"total score: {cognition_score:.2f}\n\n")
-        for category in eval_type_dict["Cognition"]:
-            f.write(f"\t {category}  score: {category2avg_score[category]:.2f}\n")
+        with open(os.path.join(experiment_name, 'mme_results.txt'), "a") as f:
+            f.write(f"{args}\n")
+            f.write("=========== Perception ===========\n")
+            f.write(f"total score: {perception_score:.2f}\n\n")
+            for category in eval_type_dict["Perception"]:
+                f.write(f"\t {category}  score: {category2avg_score[category]:.2f}\n")
+            f.write("\n=========== Cognition ===========\n")
+            f.write(f"total score: {cognition_score:.2f}\n\n")
+            for category in eval_type_dict["Cognition"]:
+                f.write(f"\t {category}  score: {category2avg_score[category]:.2f}\n")
 
-    print("MME evaluation complete. Results saved.")
+        print("MME evaluation complete. Results saved.")
 
 def run_mathvista_benchmark(model, processor, args):
-    experiment_name = os.path.join("experiments", "--".join(args.model_name.split("/")), "EntropyGate", "MathVista", args.experiment_name)
+    experiment_name = os.path.join("experiments", _model_slug(args.model_name), "EntropyGate", "MathVista", args.experiment_name)
     os.makedirs(experiment_name, exist_ok=True)
 
     data_list = load_dataset('AI4Math/MathVista', split='testmini')
@@ -630,7 +717,7 @@ def run_mathvista_benchmark(model, processor, args):
 def run_mmmu_benchmark(model, processor, args):
     if not _HAS_MMMU:
         raise ImportError("benchmark.mmmu_utils not found. Please ensure mmmu_utils.py is available to run MMMU benchmark.")
-    experiment_name = os.path.join("experiments", "--".join(args.model_name.split("/")), "MMMU", "EntropyGate", args.experiment_name)
+    experiment_name = os.path.join("experiments", _model_slug(args.model_name), "MMMU", "EntropyGate", args.experiment_name)
     os.makedirs(experiment_name, exist_ok=True)
 
     sub_dataset_list = []
@@ -641,8 +728,8 @@ def run_mmmu_benchmark(model, processor, args):
     data_list = list(dataset)
     image_token_ids = get_image_token_id(args.model_name)
 
+    out_samples_list = []
     with distributed_state.split_between_processes(data_list) as process_data_list:
-        out_samples = dict()
         for sample in tqdm(process_data_list, total=len(process_data_list), desc=f"Running MMMU Benchmark. Process: {distributed_state.process_index}"):
             sample = process_single_sample(sample)
             sample = construct_prompt(sample)
@@ -659,15 +746,18 @@ def run_mmmu_benchmark(model, processor, args):
             with torch.no_grad():
                 output_ids = model.generate(**inputs, generation_config=generation_config)
             output_text = processor.decode(output_ids[0][len(inputs["input_ids"][0]):], skip_special_tokens=True)
-            out_samples[sample['id']] = output_text
+            out_samples_list.append({"id": sample['id'], "output": output_text})
 
-    output_path = os.path.join(experiment_name, 'mmmu_answers.json')
-    with open(output_path, 'w') as f:
-        json.dump(out_samples, f, indent=4)
+    out_samples_list = gather_object(out_samples_list)
+    if distributed_state.is_main_process:
+        out_samples = {item["id"]: item["output"] for item in out_samples_list}
+        output_path = os.path.join(experiment_name, 'mmmu_answers.json')
+        with open(output_path, 'w') as f:
+            json.dump(out_samples, f, indent=4)
 
-    results = evaluate_mmmu(output_path, args.mmmu_answer_file_path)
-    with open(os.path.join(experiment_name, 'evaluation_results.json'), 'w') as f:
-        json.dump(results, f, indent=4)
+        results = evaluate_mmmu(output_path, args.mmmu_answer_file_path)
+        with open(os.path.join(experiment_name, 'evaluation_results.json'), 'w') as f:
+            json.dump(results, f, indent=4)
 
 
 if __name__ == "__main__":
