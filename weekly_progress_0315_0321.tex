@@ -1,0 +1,321 @@
+\documentclass[12pt,a4paper]{ctexart}
+
+% ---- 基本包 ----
+\usepackage{geometry}
+\geometry{left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm}
+\usepackage{amsmath, amssymb, bm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{float}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!70!black,
+  citecolor=blue!70!black,
+  urlcolor=blue!60!black,
+}
+
+% ---- 标题 ----
+\title{\textbf{周报：EntropyGate \\ 熵门控自适应对比解码缓解 VLM 幻觉}}
+\author{李嘉琦}
+\date{2026年3月15日 \(\sim\) 3月21日}
+
+\begin{document}
+\maketitle
+
+\noindent\textbf{实验平台：}LLaVA-1.5-7B-HF \quad|\quad \textbf{评测：}CHAIR（500 samples，COCO val2014）
+
+%======================================================================
+\section{相关工作}
+%======================================================================
+
+VLM 的对象幻觉问题近年来受到广泛关注，对比解码是其中一类主流方案。其基本思路是构造一个"容易产生幻觉"的辅助分布，在解码时从原始分布中减去该辅助分布的影响。按辅助分布的构造方式，代表方法如表~\ref{tab:related}所示。
+
+\begin{table}[H]
+\centering
+\caption{对比解码相关工作}
+\label{tab:related}
+\begin{tabular}{lll}
+\toprule
+\textbf{方法} & \textbf{出处} & \textbf{辅助分布构造} \\
+\midrule
+VCD   & CVPR 2024   & 对输入图像加高斯噪声 \\
+DoLa  & ICLR 2024   & 取模型早期层的 logits \\
+ACD   & EMNLP 2024  & 类似 VCD，用 $H_{\text{orig}}/(H_{\text{orig}}+H_c)$ 做自适应权重 \\
+SID   & ICLR 2025   & 选择性扰动注意力中的视觉 token \\
+CRoPS & 2024        & 两步嵌套：先去语言先验，再去统计偏差 \\
+OPERA & CVPR 2024   & 注意力过度信任惩罚 + 回溯 \\
+LEAD  & CVPR 2026   & 高熵时改用概率加权连续嵌入 + 视觉锚点 \\
+LASER & 2026        & 隐状态叠加态 + 熵正则化干预 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+这些方法普遍存在一个问题：对比强度 $\alpha$ 要么是手动设定的常数，要么依赖简单的衰减策略，没有考虑模型在生成每个 token 时的实际不确定性。
+
+%======================================================================
+\section{出发点}
+%======================================================================
+
+在跑 baseline 的过程中，我注意到模型对不同 token 的确信程度差异很大。比如生成介词"in""on"时，输出熵很低，这种时候如果仍施加较强的对比修正，反而在本来正确的预测上引入噪声；而在判断某个物体是否存在时，模型熵较高，固定的 $\alpha$ 又可能不够用。
+
+由此产生了一个自然的想法：让对比强度跟着当前 token 的熵走——熵高时加大力度、熵低时减小干预。
+
+%======================================================================
+\section{初始方案与 Baseline}
+%======================================================================
+
+\subsection{Baseline}
+
+\begin{table}[H]
+\centering
+\caption{Baseline 结果}
+\label{tab:baseline}
+\begin{tabular}{lccc}
+\toprule
+\textbf{方法} & \textbf{CHAIRs$\downarrow$} & \textbf{CHAIRi$\downarrow$} & \textbf{Recall$\uparrow$} \\
+\midrule
+Vanilla                    & 52.6 & 16.3 & 72.9 \\
+CRoPS ($\alpha$=1.0, $\lambda$=0.01) & 37.4 & 10.3 & 72.8 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{初始 EntropyGate（Flat 结构）}
+
+最初的设计比较直接，把熵门控以平坦的方式加在视觉和文本两路对比信号上：
+\begin{align}
+g_{\text{vis}} &= \sigma\!\bigl((H_t - \eta_{\text{vis}})/\tau\bigr) \cdot \alpha_{\text{base,vis}} \\
+g_{\text{txt}} &= \text{decay}(t) \cdot \sigma\!\bigl((H_t - \eta_{\text{txt}})/\tau\bigr) \cdot \alpha_{\text{base,txt}} \\
+\text{final} &= (1 + g_{\text{vis}} + g_{\text{txt}}) \log p - g_{\text{vis}} \log p_{\text{stat}} - g_{\text{txt}} \log p_{\text{lang}}
+\end{align}
+
+跑出来 CHAIRs=49.0, CHAIRi=12.5, Recall=77.6。Recall 不错，但幻觉抑制比 CRoPS 差了一大截。
+
+%======================================================================
+\section{实验过程与改进}
+%======================================================================
+
+\subsection{Scheme D — 加 Floor 下限}
+
+查看 gate 的统计数据后发现 $g_{\text{vis}}$ 的平均值只有 0.10，而 CRoPS 相当于 $\alpha$ 恒为 1.0，差了一个数量级。于是给 $g_{\text{vis}}$ 和 $g_{\text{txt}}$ 加了下限。
+
+最优配置 D-0.5/0.2：CHAIRs=42.6（比初始版降了 6.4），但跟 CRoPS 还有距离。
+
+\subsection{Scheme D+A — 校准 $\eta$ 阈值}
+
+在 D 的基础上把 $\eta$ 校准到实际熵分布范围，同时把 $\alpha_{\text{base}}$ 拉大到 1.5。
+
+最优 c1：CHAIRs=42.2, CHAIRi=10.7。CHAIRi 已经接近 CRoPS（10.3），但 CHAIRs 还差 4.8。
+
+\subsection{根因分析}
+
+到这一步我意识到光调超参可能不够，于是把 CRoPS 和 EntropyGate 的公式做了展开对比。CRoPS 的两步嵌套结构是：
+\begin{align}
+\text{intermediate} &= \frac{\log p}{\gamma} - \frac{1-\gamma}{\gamma} \log p_{\text{lang}} \\
+\text{final} &= (1+\alpha) \cdot \text{intermediate} - \alpha \cdot \log p_{\text{stat}}
+\end{align}
+
+展开后原始分布前面的系数是 $(1+\alpha)/\gamma$，随时间步增长会变得很大。而 flat 公式里原始分布的系数只有 $1 + g_{\text{vis}} + g_{\text{txt}}$，数值上只有 CRoPS 的 63\% 左右；lang prior 的对比力度更是只有 CRoPS 的 23\%。
+
+结论很明确：\textbf{公式结构本身就有问题}，嵌套结构天然带来的交叉放大效应，flat 结构怎么调参都模拟不出来。
+
+\subsection{Scheme E — 嵌套 + 熵门控（主要结果）}
+
+想清楚之后做法就很自然了：复用 CRoPS 的嵌套结构，只用熵门控替换第二步里固定的 $\alpha$：
+\begin{align}
+\text{intermediate} &= \log p + \frac{1-\gamma_t}{\gamma_t}\bigl(\log p - \log p_{\text{lang}}\bigr) \label{eq:nested_step1} \\
+g_{\text{vis}} &= \alpha_{\min} + (\alpha_{\text{base}} - \alpha_{\min}) \cdot \sigma\!\left(\frac{H_t - \eta}{\tau}\right) \label{eq:entropy_gate} \\
+\text{final} &= (1 + g_{\text{vis}}) \cdot \text{intermediate} - g_{\text{vis}} \cdot \log p_{\text{stat}} \label{eq:nested_step2}
+\end{align}
+
+\begin{table}[H]
+\centering
+\caption{Scheme E 结果}
+\label{tab:scheme_e}
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{配置} & $\alpha_{\text{base}}$ & $\alpha_{\min}$ & \textbf{CHAIRs$\downarrow$} & \textbf{CHAIRi$\downarrow$} & \textbf{Recall$\uparrow$} \\
+\midrule
+E4（固定 $\alpha$=1.0，$\approx$CRoPS） & 1.0 & 1.0 & 37.0 & 10.1 & 73.2 \\
+\textbf{E5（熵门控 [0.5, 1.5]）} & \textbf{1.5} & \textbf{0.5} & \textbf{35.6} & \textbf{9.9} & \textbf{73.6} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+E4 把 $\alpha$ 固定为 1.0，等价于 CRoPS，跑出 37.0，和 CRoPS 的 37.4 基本一致，说明嵌套结构对接没有问题。E5 加上熵门控后 CHAIRs 降到 35.6，这 1.4 的提升就是熵门控的纯贡献。
+
+\subsection{其他探索}
+
+\begin{table}[H]
+\centering
+\caption{其他方案结果}
+\label{tab:others}
+\begin{tabular}{llcl}
+\toprule
+\textbf{方案} & \textbf{做法} & \textbf{最优 CHAIRs} & \textbf{简评} \\
+\midrule
+Scheme F & ACD 风格熵比值 & 39.2 & Recall 好但幻觉指标不如 E5 \\
+Scheme G & E + 参数对齐 & 35.6 & 与 E 一致，非核心参数不是瓶颈 \\
+Dir12/Dir34 & flat 极限调参 & 40.2 & flat 结构天花板约 40 \\
+VCD+EG & VCD 上加熵门控 & 55.8 & 降了 2.6，VCD 整体不如 CRoPS \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Latent Space 方向（新实现）}
+
+logit 空间的实验告一段落后，我开始尝试把对比操作搬到隐状态空间。主要考虑是：模型最后一层到 logits 之间有个 RMSNorm，它是非线性的，所以在 hidden state 空间做对比再投影回来，和直接在 logit 空间做对比得到的结果是不一样的。实现了三种方法：
+
+\paragraph{HSC（Hidden State Contrastive）。}
+将 stat bias 对比搬到 hidden state 空间，lang prior 对比留在 logit 空间：
+\begin{align}
+\mathbf{h}_{\text{contrasted}} &= \mathbf{h}_{\text{orig}} + g_{\text{vis}}(H_t) \cdot (\mathbf{h}_{\text{orig}} - \mathbf{h}_{\text{stat}}) \\
+\text{logits}_{\text{corrected}} &= W_{\text{head}} \cdot \text{RMSNorm}(\mathbf{h}_{\text{contrasted}})
+\end{align}
+然后在 logit 空间做 lang prior 对比（带时间衰减）。
+
+\paragraph{LEG（Latent Entropy Gate）。}
+对比公式跟 E5 一样在 logit 空间做，但驱动门控的熵信号改成从模型中间层（如第 16 层）取。中间层的不确定性可能比输出层更早反映幻觉风险。
+
+\paragraph{LLH（Latent-Logit Hybrid）。}
+两阶段都用熵门控——第一阶段在 hidden state 空间做 stat bias 对比（用原始熵 $H_t$ 门控），第二阶段在 logit 空间做 lang prior 对比（用修正后分布的熵 $H_{\text{corrected}}$ 门控）。
+
+三种方法的代码和实验脚本均已完成，各配了 5 组参数（包括参考 LASER 的高 $\eta$ 配置），待跑实验。
+
+%======================================================================
+\section{当前最优结果}
+%======================================================================
+
+\begin{table}[H]
+\centering
+\caption{总览对比}
+\label{tab:final}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{方法} & \textbf{CHAIRs$\downarrow$} & \textbf{CHAIRi$\downarrow$} & \textbf{Recall$\uparrow$} & \textbf{vs CRoPS} \\
+\midrule
+Vanilla & 52.6 & 16.3 & 72.9 & — \\
+CRoPS   & 37.4 & 10.3 & 72.8 & baseline \\
+\textbf{EntropyGate E5} & \textbf{35.6} & \textbf{9.9} & \textbf{73.6} & \textbf{$-$1.8 / $-$0.4 / $+$0.8} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+三项指标全面优于 CRoPS。
+
+%======================================================================
+\section{新论文调研与方法构想}
+%======================================================================
+
+\subsection{LEAD（CVPR 2026）}
+
+论文全称 \textit{Thinking in Uncertainty: Mitigating Hallucinations in MLRMs with Latent Entropy-Aware Decoding}（arXiv: 2603.13366）。
+
+LEAD 观察到转折词（because, however 等）常处于高熵状态，幻觉容易在这之后出现。它的做法有两点：一是高熵时不选具体 token，改用所有 token embedding 的概率加权混合作为下一步输入：
+\begin{equation}
+\tilde{\mathbf{e}}_t = \begin{cases}
+\mathbf{e}(r_t), & H_t < \hat{H} \\
+\mathbb{E}_{v \sim p_t}[\mathbf{e}(v)], & H_t \geq \hat{H}
+\end{cases}
+\end{equation}
+
+二是高熵时注入视觉锚点：
+\begin{equation}
+\tilde{\mathbf{e}}_t^* = (1-\lambda)\,\mathbb{E}_{v \sim p_t^*}[\mathbf{e}(v)] + \lambda\,\mathbf{e}_{\text{vis}}, \quad \lambda = 0.4
+\end{equation}
+
+在 R1-Onevision-7B 上，MMHalu $+$4.7\%, VStar $+$4.7\%, MathVista $+$2.3\%。
+
+\subsection{LASER（arXiv 2601.06803）}
+
+LASER 认为 CoT 的显式文本推理存在信息瓶颈。它的做法是在隐状态空间保持"语义叠加态"，用动态窗口上的 soft distribution 做监督，并在模型不确定时注入 hard target：
+\begin{equation}
+P_t^{\text{target}} = \begin{cases}
+\alpha \cdot y_{\text{hard}} + (1-\alpha) \cdot Q_t, & H(Q_t) > \eta \\
+Q_t, & H(Q_t) \leq \eta
+\end{cases}
+\end{equation}
+其中 $\eta=0.6$，约 10\% 的 token 触发干预。HallusionBench 提升 11.36\%，推理 token 量减少 97.3\%。
+
+\subsection{LEAD 作为 baseline 的可行性}
+
+CRoPS 和 LEAD 解决问题的角度差别很大（表~\ref{tab:lead_vs_crops}），\textbf{不适合直接替代 CRoPS}，但可以作为另一路 baseline 做横向对比，两者可以正交组合。
+
+\begin{table}[H]
+\centering
+\caption{CRoPS vs LEAD 对比}
+\label{tab:lead_vs_crops}
+\begin{tabular}{lll}
+\toprule
+ & \textbf{CRoPS} & \textbf{LEAD} \\
+\midrule
+干预方式 & 修改 logits 分布 & 切换输入 embedding \\
+干预时机 & 每个 token & 仅高熵 token \\
+目标场景 & 通用 VLM & 推理模型（R1 系列） \\
+核心假设 & 幻觉来自视觉/语言偏差 & 幻觉来自高熵点错误坍缩 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{新方法构想}
+
+结合 LEAD 的视觉锚点、LASER 的叠加态思想和我们的隐状态对比框架，初步想到三个方向：
+
+\paragraph{方案 A — SGCD（叠加态引导对比解码）。}
+高熵 token 上先把 $\mathbf{h}_{\text{orig}}$ 替换成概率加权叠加态表示再做对比。好处是叠加态保留多个候选语义，但从 embedding 空间到 hidden state 空间的投影开销不小。
+
+\paragraph{方案 B — VALC（视觉锚点隐状态对比）。}
+在 HSC 基础上加一项视觉锚点——提取视觉 token 的平均 hidden state $\mathbf{h}_{\text{vis}}$，高熵时把 $\mathbf{h}_{\text{orig}}$ 往 $\mathbf{h}_{\text{vis}}$ 方向拉：
+\begin{equation}
+\mathbf{h}_{\text{out}} = \mathbf{h}_{\text{orig}} + g_{\text{vis}} \cdot (\mathbf{h}_{\text{orig}} - \mathbf{h}_{\text{stat}}) + \lambda(H_t) \cdot (\mathbf{h}_{\text{vis}} - \mathbf{h}_{\text{orig}})
+\end{equation}
+对比项去掉幻觉成分，锚点项拉回视觉信息。改动量极小（HSC 加一行代码），\textbf{倾向于先做这个}。
+
+\paragraph{方案 C — EAEF（自适应嵌入反馈）。}
+对比解码修正 logits 后，高熵时用修正后分布的概率加权 embedding 作为下一步输入。好处是修正后分布更干净且保留语义多样性，但需要改 embedding 输入逻辑。
+
+\begin{table}[H]
+\centering
+\caption{新方案优先级}
+\label{tab:priority}
+\begin{tabular}{clcc}
+\toprule
+\textbf{优先级} & \textbf{方案} & \textbf{改动量} & \textbf{额外开销} \\
+\midrule
+1 & B（VALC） & 极小 & 无 \\
+2 & C（EAEF） & 中等 & embedding 矩阵乘 \\
+3 & A（SGCD） & 大 & 可能需额外 forward \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%======================================================================
+\section{反思与下一步}
+%======================================================================
+
+\subsection{反思}
+
+\begin{enumerate}[leftmargin=2em]
+\item 前期在 flat 结构上花了不少时间调超参，回头看应该更早去分析公式结构本身。flat 怎么调都过不了 40，换成 nested 一下子到了 35.6——\textbf{结构比参数重要}。
+\item 一个意外的现象：fp16 下 nested CHAIRs=55.4，4-bit 量化下是 35.6，差了将近 20 个点。猜测是量化引入的噪声反而让对比信号更有效，但具体机理还说不清楚。
+\item "用熵门控替换固定 $\alpha$"这个想法不局限于 CRoPS，理论上 VCD、DoLa、SID 都能用，可以定位为对比解码的通用自适应层。
+\item 从 logit 到 latent 的推进比较自然——RMSNorm 的非线性让 hidden state 空间的对比有独立意义，中间层的熵信号也可能比输出层更早反映幻觉风险。
+\end{enumerate}
+
+\subsection{下一步}
+
+\begin{enumerate}[leftmargin=2em]
+\item 跑 HSC/LEG/LLH 共 15 组实验，跟 E5 对比。
+\item 实现 VALC（方案 B），验证视觉锚点 + 对比解码的协同效果。
+\item 在同一 benchmark 上跑 LEAD，做横向对比。
+\item 在 VCD、DoLa 上验证 EntropyGate 的通用性。
+\item 扩模型（13B、Qwen2-VL）和 benchmark（AMBER、POPE）。
+\item 逐 token 的熵-幻觉可视化分析，4-bit 量化现象的机理探究。
+\end{enumerate}
+
+\end{document}
