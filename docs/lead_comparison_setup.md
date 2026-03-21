@@ -20,25 +20,86 @@ HF_ENDPOINT=https://hf-mirror.com huggingface-cli download llava-hf/llava-1.5-7b
 
 ### 1.2 LEAD 论文使用的模型
 
-LEAD 论文**不使用 Qwen2.5-VL**，而是在以下 **MLRM（多模态大推理模型）** 上评测：
+LEAD 论文在以下 **MLRM（多模态大推理模型）** 上评测，这些模型**全部基于 Qwen2.5-VL-7B 架构**微调而来：
 
-| 模型 | 类型 | 说明 |
-|------|------|------|
-| **R1-Onevision-7B** | MLRM | LEAD 主要评测模型 |
-| **Vision-R1-7B** | MLRM | 第二评测模型 |
-| VL-Rethinker-7B | MLRM | 附加评测 |
-| VL-Cogito-7B | MLRM | 附加评测 |
-| OpenVLThinker-7B | MLRM | 附加评测 |
+| 模型 | HuggingFace ID | 基座模型 | 训练方法 | 说明 |
+|------|---------------|---------|---------|------|
+| **R1-Onevision-7B** | `Fancy-MLLM/R1-Onevision-7B` | Qwen2.5-VL-7B-Instruct | SFT + RL | LEAD 主要评测模型 |
+| **Vision-R1-7B** | `Osilly/Vision-R1-7B` | Qwen2.5-VL-7B-Instruct | Cold-start SFT + GRPO | 第二评测模型 (ICLR 2026) |
+| VL-Rethinker-7B | `TIGER-Lab/VL-Rethinker-7B` | Qwen2.5-VL-7B-Instruct | GRPO-SSR + Forced Rethinking | 附加评测 |
+| VL-Cogito-7B | `csyrf/VL-Cogito` | Qwen2.5-VL-7B-Instruct | Progressive Curriculum RL | 附加评测 |
+| OpenVLThinker-7B | `ydeng9/OpenVLThinker-7B` | Qwen2.5-VL-7B | Iterative SFT-RL | 附加评测 |
 
-> **重要：** LEAD 针对的是推理模型（R1 系列），与我们的传统 VLM（LLaVA）是不同代际的模型。
+> **关键发现：** 所有 LEAD 模型都是 Qwen2.5-VL-7B 的推理增强微调版本（~8B 参数，BF16）。
+> 它们与我们的传统 VLM（LLaVA）是不同代际的模型。
 > 因此绝对数值**不可直接对比**，应关注各方法相对于 Vanilla baseline 的**提升幅度**。
 > 此外，两篇工作共同对比的 baseline 是 **VCD**，可以作为校准锚点。
 
+#### 模型下载方式
+
+推荐优先下载 **R1-Onevision-7B**（LEAD 主力模型）和 **Vision-R1-7B**（第二评测模型）：
+
 ```bash
-# 如需下载 R1-Onevision-7B（可选，用于在相同模型上跑 EntropyGate）
-huggingface-cli download Qwen/QVQ-72B-Preview --local-dir /data1/ranmaoyin/models/R1-Onevision-7B
-# 注意：需先确认 HuggingFace 上的确切模型 ID
+# ========== 方式一：从 HuggingFace 直接下载 ==========
+
+# R1-Onevision-7B（LEAD 主力模型，约 16GB）
+huggingface-cli download Fancy-MLLM/R1-Onevision-7B \
+    --local-dir /data1/ranmaoyin/models/R1-Onevision-7B
+
+# Vision-R1-7B（第二评测模型，约 16GB）
+huggingface-cli download Osilly/Vision-R1-7B \
+    --local-dir /data1/ranmaoyin/models/Vision-R1-7B
+
+# ========== 方式二：国内镜像下载（推荐） ==========
+
+# R1-Onevision-7B
+HF_ENDPOINT=https://hf-mirror.com huggingface-cli download Fancy-MLLM/R1-Onevision-7B \
+    --local-dir /data1/ranmaoyin/models/R1-Onevision-7B
+
+# Vision-R1-7B
+HF_ENDPOINT=https://hf-mirror.com huggingface-cli download Osilly/Vision-R1-7B \
+    --local-dir /data1/ranmaoyin/models/Vision-R1-7B
+
+# ========== 可选：其他 LEAD 评测模型 ==========
+
+# VL-Rethinker-7B
+huggingface-cli download TIGER-Lab/VL-Rethinker-7B \
+    --local-dir /data1/ranmaoyin/models/VL-Rethinker-7B
+
+# VL-Cogito-7B
+huggingface-cli download csyrf/VL-Cogito \
+    --local-dir /data1/ranmaoyin/models/VL-Cogito-7B
+
+# OpenVLThinker-7B
+huggingface-cli download ydeng9/OpenVLThinker-7B \
+    --local-dir /data1/ranmaoyin/models/OpenVLThinker-7B
+
+# ========== 基座模型（可选，用于 vanilla baseline 对比） ==========
+
+# Qwen2.5-VL-7B-Instruct（所有 LEAD 模型的基座）
+huggingface-cli download Qwen/Qwen2.5-VL-7B-Instruct \
+    --local-dir /data1/ranmaoyin/models/Qwen2.5-VL-7B-Instruct
 ```
+
+#### 硬件需求
+
+| 加载方式 | 显存需求 | 说明 |
+|---------|---------|------|
+| BF16 全精度 | ~16-18 GB | 需要 A100/A6000 等 |
+| 8-bit 量化 (`--load_in_8bit`) | ~10-12 GB | RTX 3090/4090 可用 |
+| 4-bit 量化 (`--load_in_4bit`) | ~6-8 GB | RTX 3080/4080 可用 |
+
+> **推荐：** 使用 4-bit 量化可在大多数消费级 GPU 上运行。
+
+#### 使用 LEAD 模型前的适配工作
+
+这些模型**可以用于我们的 POPE 实验**，但由于架构差异（Qwen2.5-VL vs LLaVA），需要以下适配：
+
+1. **已有基础：** `methods/model_forward/crops_qwen_forward.py` 已实现 Qwen2-VL 的 forward hook
+2. **需注册 image token ID：** 在 `constants/image_token_constants.py` 中添加 Qwen2.5-VL 的 image token（Qwen2-VL 使用 `<|image_pad|>` token，ID 需从 tokenizer 中读取）
+3. **需适配 chat template：** Qwen2.5-VL 使用 `processor.apply_chat_template()` 构建输入，与 LLaVA 的 prompt 格式不同
+4. **需处理 `<think>` 标签：** 推理模型输出通常包含 `<think>...</think>` 推理链，POPE 答案提取逻辑需跳过 think 块，仅从最终回答中提取 yes/no
+5. **需安装额外依赖：** `pip install qwen-vl-utils`
 
 ---
 
@@ -244,15 +305,68 @@ experiments/
 
 ## 5. 后续扩展（可选）
 
-### 5.1 在 R1 推理模型上运行 EntropyGate
+### 5.1 在 LEAD 论文的 R1 推理模型上运行 EntropyGate
 
-如需在与 LEAD 完全相同的模型（R1-Onevision-7B）上对比，需要：
+**可行性：可以使用 LEAD 的模型。** 所有 LEAD 模型都基于 Qwen2.5-VL-7B，我们已有 Qwen2-VL forward hook 支持。
 
-1. 在 `constants/image_token_constants.py` 中注册 R1-Onevision 的 image token ID
-2. 确认 `_build_full_inputs()` 对 Qwen2-VL 系列 chat template 的兼容性
-3. 测试 EntropyGate 的 FastV/TextMask 在 Qwen2-VL attention 结构上的适配
-   （已有 `methods/model_forward/crops_qwen_forward.py`，需验证版本兼容）
-4. 注意 R1 模型输出通常包含 `<think>...</think>` 推理链，需调整 POPE 回答提取逻辑
+**具体适配步骤：**
+
+**Step 1：下载模型**（参见 1.2 节的下载命令）
+
+**Step 2：注册 image token ID**
+
+Qwen2.5-VL 使用 `<|image_pad|>` 作为图像占位 token。需在 `constants/image_token_constants.py` 中添加：
+
+```python
+# 可通过以下代码查询实际 token ID：
+from transformers import AutoTokenizer
+tokenizer = AutoTokenizer.from_pretrained("Fancy-MLLM/R1-Onevision-7B")
+print(tokenizer.convert_tokens_to_ids("<|image_pad|>"))
+# 通常为 151655
+```
+
+**Step 3：适配输入构建**
+
+Qwen2.5-VL 使用不同的 chat template，需修改 `_build_full_inputs()` 或新增分支：
+
+```python
+# Qwen2.5-VL 的输入格式
+messages = [{"role": "user", "content": [
+    {"type": "image", "image": image_path},
+    {"type": "text", "text": "Is there a dog in the image?"}
+]}]
+text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+inputs = processor(text=[text], images=[image], return_tensors="pt")
+```
+
+**Step 4：处理推理模型的 `<think>` 输出**
+
+R1 系列模型会输出 `<think>思考过程...</think>最终回答` 格式。POPE 答案提取需跳过 think 块：
+
+```python
+import re
+def extract_answer_from_reasoning_model(output: str) -> str:
+    """从推理模型输出中提取最终回答（跳过 <think> 块）"""
+    # 移除 <think>...</think> 块
+    answer = re.sub(r'<think>.*?</think>', '', output, flags=re.DOTALL).strip()
+    return answer
+```
+
+**Step 5：验证 forward hook 兼容性**
+
+`methods/model_forward/crops_qwen_forward.py` 已实现 Qwen2-VL 的 attention mask 操作，
+但需验证其与 Qwen2.5-VL 的兼容性（API 可能有细微变化）。
+
+**Step 6：安装额外依赖**
+
+```bash
+pip install qwen-vl-utils>=0.0.8
+```
+
+**推荐实验顺序：**
+1. 先在 LLaVA-1.5-7B 上完成所有方法的 POPE 评测（无需适配）
+2. 再在 R1-Onevision-7B 上运行 vanilla + EntropyGate，与 LEAD 论文直接对比
+3. 可选：在 Qwen2.5-VL-7B-Instruct（基座模型）上跑，观察推理微调的影响
 
 ### 5.2 添加 LEAD 论文的其他对比 benchmark
 
@@ -289,12 +403,18 @@ LEAD 论文对比了 VCD、SID、MemVR 三个 baseline。
 ## 6. 依赖检查
 
 ```bash
-# 确认依赖已安装
+# 确认基础依赖已安装
 pip install -r requirements.txt
 
 # POPE 不需要额外依赖，使用标准 JSON 解析
 # 确认 accelerate 可用（多卡推理）
 python -c "from accelerate import PartialState; print('OK')"
+
+# 如需使用 LEAD 的 Qwen2.5-VL 系列模型，还需安装：
+pip install qwen-vl-utils>=0.0.8
+
+# 验证 Qwen2.5-VL 模型可加载
+python -c "from transformers import Qwen2_5_VLForConditionalGeneration; print('Qwen2.5-VL OK')"
 ```
 
 ---
