@@ -92,24 +92,32 @@ class PopeBenchmarkDataset:
 
     @staticmethod
     def _extract_yesno(response: str) -> str:
-        """Extract yes/no answer from model response."""
+        """Extract yes/no answer from model response.
+
+        Follows the standard POPE evaluation protocol:
+        1. Check the first word of the response.
+        2. Search for yes/no anywhere in the response.
+        3. If ambiguous, return "unknown" (counted as wrong).
+        """
         response_lower = response.strip().lower()
+        if not response_lower:
+            return "unknown"
 
-        # Check first word
-        first_word = response_lower.split()[0] if response_lower.split() else ""
-        first_word = first_word.rstrip(".,!;:")
-
+        # Check first word (most reliable signal)
+        first_word = response_lower.split()[0].rstrip(".,!;:")
         if first_word in ("yes", "no"):
             return first_word
 
-        # Check if yes/no appears anywhere
-        if "yes" in response_lower and "no" not in response_lower:
+        # Check if only one of yes/no appears
+        has_yes = "yes" in response_lower
+        has_no = "no" in response_lower
+        if has_yes and not has_no:
             return "yes"
-        if "no" in response_lower and "yes" not in response_lower:
+        if has_no and not has_yes:
             return "no"
 
-        # Ambiguous or missing — default to "yes" (common convention)
-        return "yes"
+        # Both or neither — cannot determine
+        return "unknown"
 
     def evaluate(self, results_path: str, dump_results: bool = True) -> dict:
         """Compute per-split and overall accuracy, precision, recall, F1."""

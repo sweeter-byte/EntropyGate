@@ -18,15 +18,26 @@ huggingface-cli download llava-hf/llava-1.5-7b-hf --local-dir /data1/ranmaoyin/m
 HF_ENDPOINT=https://hf-mirror.com huggingface-cli download llava-hf/llava-1.5-7b-hf --local-dir /data1/ranmaoyin/models/llava-1.5-7b-hf
 ```
 
-### 1.2 Qwen2.5-VL-7B-Instruct（LEAD 论文使用的模型）
+### 1.2 LEAD 论文使用的模型
 
-> **注意：** 当前 EntropyGate 代码尚未完全支持 Qwen2.5-VL 的推理流水线。
-> 如需在同一模型上直接对比 LEAD，需额外适配工作（见第 5 节）。
-> 目前建议先在 **LLaVA-1.5-7B 上跑 POPE/CHAIR**，与 LEAD 论文报告的 VCD baseline 数据做横向对比。
+LEAD 论文**不使用 Qwen2.5-VL**，而是在以下 **MLRM（多模态大推理模型）** 上评测：
+
+| 模型 | 类型 | 说明 |
+|------|------|------|
+| **R1-Onevision-7B** | MLRM | LEAD 主要评测模型 |
+| **Vision-R1-7B** | MLRM | 第二评测模型 |
+| VL-Rethinker-7B | MLRM | 附加评测 |
+| VL-Cogito-7B | MLRM | 附加评测 |
+| OpenVLThinker-7B | MLRM | 附加评测 |
+
+> **重要：** LEAD 针对的是推理模型（R1 系列），与我们的传统 VLM（LLaVA）是不同代际的模型。
+> 因此绝对数值**不可直接对比**，应关注各方法相对于 Vanilla baseline 的**提升幅度**。
+> 此外，两篇工作共同对比的 baseline 是 **VCD**，可以作为校准锚点。
 
 ```bash
-# 仅供参考 — 后续适配时使用
-huggingface-cli download Qwen/Qwen2.5-VL-7B-Instruct --local-dir /data1/ranmaoyin/models/Qwen2.5-VL-7B-Instruct
+# 如需下载 R1-Onevision-7B（可选，用于在相同模型上跑 EntropyGate）
+huggingface-cli download Qwen/QVQ-72B-Preview --local-dir /data1/ranmaoyin/models/R1-Onevision-7B
+# 注意：需先确认 HuggingFace 上的确切模型 ID
 ```
 
 ---
@@ -176,50 +187,102 @@ experiments/
 
 ### 4.2 POPE 指标说明
 
-| 指标 | 说明 | LEAD 论文也报告 |
-|------|------|----------------|
-| Accuracy | 正确率 | ✅ |
-| Precision | 精确率 | ✅ |
-| Recall | 召回率 | ✅ |
-| F1 | F1 分数 | ✅ |
-| Yes-ratio | 回答 "yes" 的比例 | ✅ |
+| 指标 | 说明 | LEAD 论文报告 |
+|------|------|--------------|
+| Accuracy | 正确率 | ✅（仅报告此指标） |
+| Precision | 精确率 | ❌ |
+| Recall | 召回率 | ❌ |
+| F1 | F1 分数 | ❌ |
+| Yes-ratio | 回答 "yes" 的比例 | ❌ |
+
+> LEAD 论文在 POPE 上仅报告 Accuracy。我们额外报告 Precision/Recall/F1/Yes-ratio
+> 以便更全面地分析方法特性（如是否存在 yes-bias）。
 
 ### 4.3 与 LEAD 论文数据对比
 
-LEAD 论文 Table 2 报告了以下方法在 POPE 上的结果（Qwen2.5-VL-7B 模型）：
+**LEAD 论文 Table 2 POPE 结果**（来源：arXiv:2603.13366）
 
-| Method | POPE-R Acc | POPE-P Acc | POPE-A Acc |
-|--------|-----------|-----------|-----------|
-| Greedy | (论文数据) | ... | ... |
-| VCD | (论文数据) | ... | ... |
-| SID | (论文数据) | ... | ... |
-| LEAD | (论文数据) | ... | ... |
+**R1-Onevision-7B 模型：**
 
-**注意：** 由于模型不同（LLaVA-1.5-7B vs Qwen2.5-VL-7B），绝对数值不可直接对比。
-建议关注：
-1. **相对提升幅度**：各方法相对于 Vanilla 的提升百分比
-2. **VCD baseline 对齐**：两边都有 VCD，可作为锚点校准
+| Method | POPE-R ↑ | POPE-P ↑ | POPE-A ↑ |
+|--------|----------|----------|----------|
+| Baseline (Greedy) | 84.6 | 84.0 | 82.5 |
+| + VCD | 84.4 | 83.8 | 82.3 |
+| + MemVR | 82.3 | 85.0 | 83.5 |
+| + SID | 85.0 | 84.7 | 81.9 |
+| + **LEAD** | **85.9 (+1.3)** | **85.3 (+1.3)** | **83.9 (+1.4)** |
+
+**Vision-R1-7B 模型：**
+
+| Method | POPE-R ↑ | POPE-P ↑ | POPE-A ↑ |
+|--------|----------|----------|----------|
+| Baseline | 88.0 | 85.2 | 84.0 |
+| + **LEAD** | **91.4 (+3.4)** | **88.3 (+3.1)** | **87.7 (+3.7)** |
+
+**其他模型：**
+
+| Model + LEAD | POPE-R ↑ | POPE-P ↑ | POPE-A ↑ |
+|--------------|----------|----------|----------|
+| VL-Rethinker-7B | 85.5 → 86.2 | 81.8 → 85.1 | 82.8 → 84.9 |
+| VL-Cogito-7B | 85.0 → 86.3 | 85.0 → 86.6 | 84.1 → 86.1 |
+| OpenVLThinker-7B | 82.4 → 84.1 | 82.5 → 83.5 | 79.1 → 80.2 |
+
+### 4.4 对比分析建议
+
+**模型差异：** LEAD 使用 MLRM（R1 推理模型），我们使用传统 VLM（LLaVA-1.5-7B）。
+绝对数值不可直接比较，建议关注：
+
+1. **相对提升幅度**：各方法相对 Vanilla 的 Accuracy 提升
+   - LEAD 在 R1-Onevision 上: POPE-R +1.3%, POPE-P +1.3%, POPE-A +1.4%
+   - EntropyGate E5 在 LLaVA 上: (待实验)
+2. **VCD baseline 作为锚点**：两边都对比了 VCD，可校准提升效果
+   - LEAD 论文中 VCD 在 R1 上几乎无提升甚至下降（POPE-R: 84.6→84.4）
+   - 这说明 VCD 对推理模型效果有限，而 LEAD 的提升更显著
+3. **LEAD 代码仓库没有开源 POPE 评测代码**，其 POPE 结果的具体实现细节未知
 
 ---
 
 ## 5. 后续扩展（可选）
 
-### 5.1 添加 Qwen2.5-VL 支持
+### 5.1 在 R1 推理模型上运行 EntropyGate
 
-如需在与 LEAD 完全相同的模型上对比，需要：
+如需在与 LEAD 完全相同的模型（R1-Onevision-7B）上对比，需要：
 
-1. 在 `constants/image_token_constants.py` 中注册 Qwen2.5-VL 的 image token ID
-2. 确认 `_build_full_inputs()` 对 Qwen2.5-VL 的 chat template 兼容性
-3. 测试 EntropyGate 的 FastV/TextMask 在 Qwen2.5-VL attention 结构上的适配
+1. 在 `constants/image_token_constants.py` 中注册 R1-Onevision 的 image token ID
+2. 确认 `_build_full_inputs()` 对 Qwen2-VL 系列 chat template 的兼容性
+3. 测试 EntropyGate 的 FastV/TextMask 在 Qwen2-VL attention 结构上的适配
    （已有 `methods/model_forward/crops_qwen_forward.py`，需验证版本兼容）
+4. 注意 R1 模型输出通常包含 `<think>...</think>` 推理链，需调整 POPE 回答提取逻辑
 
-### 5.2 添加 MMHalBench
+### 5.2 添加 LEAD 论文的其他对比 benchmark
 
-LEAD 论文还报告了 MMHalBench 结果，可后续添加该 benchmark。
+LEAD Table 2 还报告了以下 benchmark，可考虑添加：
+
+| Benchmark | 类型 | 优先级 |
+|-----------|------|--------|
+| **MMHalu** | 幻觉评估 (score 0-6) | 高 |
+| **Bingo** | 幻觉评估 (score 1-5) | 高 |
+| **MMVP** | 通用理解 | 中 |
+| **RealWorldQA** | 通用理解 | 中 |
+| **VMCBench** | 通用理解 | 低 |
 
 ### 5.3 添加 SID / MemVR baseline
 
-LEAD 论文对比了 SID 和 MemVR 方法，可考虑实现作为额外 baseline。
+LEAD 论文对比了 VCD、SID、MemVR 三个 baseline。
+- VCD: 已实现 ✅
+- SID: 待实现
+- MemVR: 待实现
+
+### 5.4 LEAD 论文 Table 3 — MathVista 对比
+
+我们已有 MathVista benchmark 支持。LEAD 论文的 MathVista 结果：
+
+| Model | Baseline | + LEAD |
+|-------|----------|--------|
+| R1-Onevision-7B | 64.1 | 66.4 (+2.3) |
+| Vision-R1-7B | 73.5 | 74.9 (+1.4) |
+
+可直接在 LLaVA 上运行 MathVista 做对比。
 
 ---
 
