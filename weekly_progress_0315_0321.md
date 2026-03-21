@@ -17,6 +17,8 @@
 | SID | ICLR 2025 | 注意力选择性扰动视觉 token |
 | CRoPS | 2024 | 两步嵌套对比：语言先验 + 统计偏差视觉对比 |
 | OPERA | CVPR 2024 | 注意力过度信任惩罚 + 回溯机制 |
+| LEAD | CVPR 2026 | 高熵时切换为概率加权连续嵌入 + 视觉锚点注入 |
+| LASER | 2026 | 隐状态语义叠加态 + 熵正则化干预，延迟离散坍缩 |
 
 **所有方法的共同局限**：对比强度 α 是固定或启发式设定的，与模型逐 token 的认知状态无关。
 
@@ -161,19 +163,145 @@ E5 在三项指标上全面优于 CRoPS，且 E4（固定 α=1.0）的 CHAIRs=37
 
 ---
 
-## 六、反思与下一步计划
+## 六、新论文调研与方法构想
 
-### 6.1 反思
+### 6.1 LEAD: Latent Entropy-Aware Decoding (CVPR 2026)
+
+**论文**：*Thinking in Uncertainty: Mitigating Hallucinations in MLRMs with Latent Entropy-Aware Decoding* (arXiv: 2603.13366)
+
+**核心思想**：在多模态推理模型中，转折词（because, however, wait 等）常伴随高熵状态，幻觉更容易在这些时刻之后出现。LEAD 提出两个机制：
+
+1. **熵感知嵌入切换**：当 H_t > Ĥ（动态阈值）时，不再用离散 token 的 embedding 作为下一步输入，改用概率加权的连续嵌入：
+```
+ẽ_t = E_{v~p_t}[e(v)]    # 高熵时：所有 token embedding 的概率加权混合
+ẽ_t = e(r_t)              # 低熵时：正常离散 token embedding
+```
+
+2. **视觉锚点注入**：高熵时额外注入视觉信息防止推理链脱离图像：
+```
+ẽ_t* = (1-λ) * E_{v~p_t*}[e(v)] + λ * e_vis    # λ=0.4 最优
+```
+
+**实验结果**（R1-Onevision-7B）：MMHalu +4.7%, VStar +4.7%, MathVista +2.3%，优于 VCD、SID 等基线。
+
+### 6.2 LASER: Latent Superposition for Efficient Visual Reasoning (arXiv 2601.06803)
+
+**核心思想**：Chain-of-Thought 的显式文本推理存在信息带宽瓶颈——连续视觉信息在离散 token 化时丢失。LASER 提出在隐状态空间保持"语义叠加态"，延迟坍缩到具体 token：
+
+1. **自精炼叠加 (Self-Refined Superposition)**：用动态语义窗口上的 soft distribution 作为监督目标，而非逐 token 的 hard label
+2. **熵正则化干预 (Entropy-Regularized Intervention)**：
+```
+P_t^target = α·y_hard + (1-α)·Q_t    当 H(Q_t) > η (η=0.6)
+P_t^target = Q_t                       当 H(Q_t) ≤ η
+```
+当模型不确定性高时注入 hard target 引导，否则保持 soft superposition。
+
+**关键结果**：HallusionBench +11.36%，推理 token 减少 97.3%。
+
+### 6.3 LEAD 能否替代 CRoPS 作为 baseline？
+
+**结论：不适合直接替代，但适合作为互补 baseline。** 原因：
+
+| 维度 | CRoPS | LEAD |
+|------|-------|------|
+| 干预方式 | 对比解码（修改 logits 分布） | 嵌入切换（修改输入 embedding） |
+| 干预时机 | 每个 token 都干预 | 仅高熵 token 干预 |
+| 目标模型 | 通用 VLM（LLaVA 等） | 多模态推理模型（R1 系列，长链推理） |
+| 核心假设 | 幻觉来自视觉/语言先验偏差 | 幻觉来自高熵点的错误坍缩 |
+| 计算开销 | 3 次 forward pass/token | 1 次 forward + embedding 计算 |
+
+CRoPS 和 LEAD 解决问题的角度完全不同——CRoPS 通过对比"校正分布"，LEAD 通过"延迟离散决策保持语义多样性"。**两者可以正交组合**。
+
+### 6.4 新方法构想：结合 LEAD/LASER 与 EntropyGate Latent
+
+基于 LEAD 的"高熵时用连续嵌入"、LASER 的"隐状态叠加态"和我们的"隐状态对比 + 熵门控"，提出以下新方向：
+
+#### 方案 A：Superposition-Guided Contrastive Decoding (SGCD)
+
+**核心思想**：在高熵 token 上，不直接从 h_orig 和 h_stat 做点对点对比，而是先将 h_orig 替换为**叠加态表示**再做对比。低熵时退回标准对比。
+
+```
+# 高熵时：构造叠加态 hidden state
+p_t = softmax(lm_head(norm(h_orig)))
+h_superposed = Σ_v p_t[v] * E[v]    # 概率加权 embedding（LEAD 思想）
+h_superposed_proj = encoder_layers(h_superposed)  # 近似投影回 hidden space
+
+# 对比在叠加态上进行
+h_contrasted = h_superposed_proj + g_vis(H_t) * (h_superposed_proj - h_stat)
+final_logits = lm_head(norm(h_contrasted))
+```
+
+**优势**：叠加态保留了多个候选语义，对比解码在更丰富的信号上操作，可能比单点 h_orig 更有效地剔除幻觉成分。
+
+**难点**：从 embedding 空间到 hidden state 空间的投影需要额外前向计算，开销可能较大。
+
+#### 方案 B：Visual-Anchored Latent Contrast (VALC)
+
+**核心思想**：借鉴 LEAD 的视觉锚点注入，在 HSC 的 hidden state 对比中加入视觉锚点。当模型高熵时，不仅做 h_orig - h_stat 的对比，还将 h_orig 向视觉 token 的隐状态拉近。
+
+```
+# 提取视觉 token 的平均 hidden state
+h_vis = mean(h_orig[visual_token_positions])
+
+# 熵门控对比 + 视觉锚点
+g_vis = α_min + (α_base - α_min) * sigmoid((H_t - η) / τ)
+λ_anchor = λ_base * sigmoid((H_t - η_anchor) / τ)    # 视觉锚点强度也由熵门控
+
+h_contrasted = h_orig + g_vis * (h_orig - h_stat) + λ_anchor * (h_vis - h_orig)
+final_logits = lm_head(norm(h_contrasted))
+```
+
+**优势**：实现简洁，不需要额外 forward pass；视觉锚点在高熵时拉回模型对图像的关注，与对比解码协同——对比解码去除幻觉成分，视觉锚点补充正确的视觉信息。
+
+**这是最推荐优先实验的方案**，因为改动最小（只在 HSC 的 `_hsc_core` 中加一行），且动机清晰。
+
+#### 方案 C：Entropy-Adaptive Embedding Feedback (EAEF)
+
+**核心思想**：完全借鉴 LEAD 的嵌入切换机制，但将其与我们的对比解码结合。在高熵 token 上，解码时同时做两件事：(1) 用 EntropyGate 修正 logits 分布；(2) 将下一步的输入 embedding 替换为修正后分布的概率加权嵌入（而非修正前的）。
+
+```
+# Step 1: EntropyGate 对比解码得到修正分布
+final_logits = entropygate_nested(log_p, log_p_stat, log_p_lang, H_t)
+p_corrected = softmax(final_logits)
+
+# Step 2: 判断是否高熵
+if H_t > η:
+    # 用修正后分布的加权 embedding 作为下一步输入
+    next_embedding = Σ_v p_corrected[v] * e(v)
+else:
+    next_token = argmax(p_corrected)
+    next_embedding = e(next_token)
+```
+
+**优势**：对比解码修正了 logits，连续嵌入保留了修正后的语义多样性，两者互相增强。
+
+**难点**：需要修改模型的 input embedding 逻辑，侵入性较大。
+
+### 6.5 推荐实验优先级
+
+| 优先级 | 方案 | 改动量 | 额外开销 | 理由 |
+|--------|------|--------|---------|------|
+| **1** | **B (VALC)** | 极小（HSC + 1 行） | 无额外 forward | 最简洁，视觉锚点 + 对比解码协同动机清晰 |
+| 2 | C (EAEF) | 中等（修改 embedding 输入） | embedding 矩阵乘法 | LEAD 核心思想的直接结合 |
+| 3 | A (SGCD) | 大（需要近似投影） | 可能需额外 forward | 理论最优雅但实现复杂 |
+
+---
+
+## 七、反思与下一步计划
+
+### 7.1 反思
 
 1. **公式结构比超参数更重要**：flat 结构无论怎么调参都无法突破 40，切换到 nested 后直接达到 35.6。前期在 flat 上花了较多时间调参，应更早做根因分析。
 2. **4-bit 量化的意外发现**：fp16 下 nested CHAIRs=55.4，4-bit 下=35.6，差距高达 19.8。量化噪声可能增强了对比信号有效性，这一现象值得深入研究。
 3. **通用性视角**：EntropyGate 的核心——"用熵门控替换固定 α"——理论上适用于所有对比解码方法（VCD、DoLa、SID 等），可定位为通用自适应层而非某个方法的 trick。
 4. **从 logit 到 latent 的自然延伸**：对比操作不必局限在 logit 空间。RMSNorm 的非线性使得 hidden state 空间的对比有独立价值；中间层的熵信号可能比输出层更早捕捉到幻觉风险。三种 Latent 方法（HSC/LEG/LLH）将"对比空间"和"熵信号来源层"作为新的设计维度，丰富了框架的探索空间。
 
-### 6.2 下一步
+### 7.2 下一步
 
 1. **运行 Latent 实验**：完成 HSC/LEG/LLH 共 15 组配置的 CHAIR 评测，与 E5 对比
-2. **扩展基础方法**：在 VCD、DoLa 上验证 EntropyGate 的通用性
-3. **扩展模型**：在 LLaVA-1.5-13B、Qwen2-VL 上验证
-4. **扩展 Benchmark**：AMBER、POPE 等更多评测
-5. **深入分析**：逐 token 熵-幻觉关系可视化，量化现象的机理探究，Latent 方向的 RMSNorm 非线性效应分析
+2. **实现 VALC (方案 B)**：在 HSC 基础上加入视觉锚点注入，验证视觉锚点 + 对比解码的协同效果
+3. **评估 LEAD 作为互补 baseline**：在相同模型/benchmark 下复现 LEAD 的嵌入切换机制，与 EntropyGate 横向对比
+4. **扩展基础方法**：在 VCD、DoLa 上验证 EntropyGate 的通用性
+5. **扩展模型**：在 LLaVA-1.5-13B、Qwen2-VL 上验证
+6. **扩展 Benchmark**：AMBER、POPE 等更多评测
+7. **深入分析**：逐 token 熵-幻觉关系可视化，量化现象的机理探究，Latent 方向的 RMSNorm 非线性效应分析
