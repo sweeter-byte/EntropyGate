@@ -33,6 +33,9 @@ eval_type_dict = {
 
 # Function to parse model output into "yes" or "no"
 def parse_pred_ans(pred_ans):
+    import re
+    # Strip <think>...</think> blocks from reasoning models (e.g. R1-Onevision)
+    pred_ans = re.sub(r'<think>.*?</think>', '', pred_ans, flags=re.DOTALL).strip()
     pred_ans = pred_ans.lower().strip().replace(".", "")
     if pred_ans in ["yes", "no"]:
         return pred_ans

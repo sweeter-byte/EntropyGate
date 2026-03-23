@@ -4,6 +4,13 @@ _BACKBONE_IMAGE_TOKEN_IDS = {
     "llava-v1.6-vicuna-7b-hf": 32000,
     "llava-v1.6-vicuna-13b-hf": 128256,
     "llava-1.5-13b-hf": 32000,
+    # Qwen2.5-VL series (<|image_pad|> token ID = 151655)
+    "Qwen2.5-VL-7B-Instruct": 151655,
+    "R1-Onevision-7B": 151655,
+    "Vision-R1-7B": 151655,
+    "VL-Rethinker-7B": 151655,
+    "VL-Cogito": 151655,
+    "OpenVLThinker-7B": 151655,
 }
 
 # Legacy exact-match dict (kept for backward compatibility)

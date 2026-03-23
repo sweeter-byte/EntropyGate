@@ -11,6 +11,7 @@ See: https://github.com/AoiDragon/POPE
 
 import json
 import os
+import re
 from collections import defaultdict
 
 
@@ -99,6 +100,8 @@ class PopeBenchmarkDataset:
         2. Search for yes/no anywhere in the response.
         3. If ambiguous, return "unknown" (counted as wrong).
         """
+        # Strip <think>...</think> blocks from reasoning models (e.g. R1-Onevision)
+        response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
         response_lower = response.strip().lower()
         if not response_lower:
             return "unknown"

@@ -388,3 +388,11 @@ def forward_conditional(
 def patch_qwen_forward():
     transformers.models.qwen2_vl.modeling_qwen2_vl.Qwen2VLModel.forward = forward
     transformers.models.qwen2_vl.modeling_qwen2_vl.Qwen2VLForConditionalGeneration.forward = forward_conditional
+
+    # Qwen2.5-VL uses a separate module in transformers (qwen2_5_vl)
+    try:
+        from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl
+        modeling_qwen2_5_vl.Qwen2_5_VLModel.forward = forward
+        modeling_qwen2_5_vl.Qwen2_5_VLForConditionalGeneration.forward = forward_conditional
+    except (ImportError, AttributeError):
+        pass  # transformers version does not have Qwen2.5-VL support
