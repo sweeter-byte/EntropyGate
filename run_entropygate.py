@@ -72,6 +72,7 @@ from constants.default_generation_constants import (
 
 from benchmark.chair_benchmark import ChairBenchmarkDataset
 from benchmark.amber_benchmark import AmberBenchmarkDataset
+from benchmark.pope_benchmark import PopeBenchmarkDataset
 from benchmark.evaluators.mme.utils import parse_pred_ans, eval_type_dict
 try:
     from benchmark.mmmu_utils import CAT_SHORT2LONG, construct_prompt, process_single_sample, evaluate_mmmu
@@ -217,6 +218,16 @@ def args_parser():
     parser.add_argument("--amber_official_repo_path", type=str, default='/data1/ranmaoyin/dataset/amber/official_repo')
     parser.add_argument("--amber_evaluation_type", type=str, default='g',
                         choices=['a', 'g', 'd', 'de', 'da', 'dr'])
+
+    # POPE benchmark
+    parser.add_argument("--run_pope_benchmark", action='store_true', default=False)
+    parser.add_argument("--pope_path", type=str, default='/data1/ranmaoyin/dataset/pope',
+                        help="Directory containing POPE JSONL files (coco_pope_random.json, etc.)")
+    parser.add_argument("--pope_coco_image_dir", type=str, default='/data1/ranmaoyin/dataset/coco2014/val2014',
+                        help="COCO val2014 image directory for POPE")
+    parser.add_argument("--pope_splits", type=str, nargs='+', default=['random', 'popular', 'adversarial'],
+                        choices=['random', 'popular', 'adversarial'],
+                        help="POPE splits to evaluate")
 
     return parser.parse_args()
 
@@ -435,6 +446,8 @@ def main():
         run_mme_benchmark(model, processor, args)
     if args.run_mmmu_benchmark:
         run_mmmu_benchmark(model, processor, args)
+    if args.run_pope_benchmark:
+        run_pope_benchmark(model, processor, args)
 
 def _make_system_content():
     return [{"type": "text", "text": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions."}]
@@ -758,6 +771,74 @@ def run_mmmu_benchmark(model, processor, args):
         results = evaluate_mmmu(output_path, args.mmmu_answer_file_path)
         with open(os.path.join(experiment_name, 'evaluation_results.json'), 'w') as f:
             json.dump(results, f, indent=4)
+
+
+def run_pope_benchmark(model, processor, args):
+    experiment_name = os.path.join(
+        "experiments", _model_slug(args.model_name), "EntropyGate", "POPE", args.experiment_name
+    )
+    os.makedirs(experiment_name, exist_ok=True)
+
+    pope_benchmark = PopeBenchmarkDataset(
+        pope_path=args.pope_path,
+        coco_image_dir=args.pope_coco_image_dir,
+        pope_splits=args.pope_splits,
+    )
+
+    with distributed_state.local_main_process_first():
+        test_dataset = pope_benchmark.get_test_dataset()
+
+    image_token_ids = get_image_token_id(args.model_name)
+    lang_prior_cache = {}
+
+    with distributed_state.split_between_processes(test_dataset) as process_test_dataset:
+        generations = []
+        for sample in tqdm(
+            process_test_dataset,
+            desc=f"Running POPE Benchmark. Process: {distributed_state.process_index}",
+        ):
+            prompt_text = sample["prompt"]
+            if prompt_text not in lang_prior_cache:
+                lang_prior_cache[prompt_text] = _build_lang_prior_inputs(
+                    processor, prompt_text, distributed_state.device
+                )
+            input_ids_lang_prior = lang_prior_cache[prompt_text]
+
+            inputs = _build_full_inputs(
+                processor, sample["image_path"], prompt_text, distributed_state.device
+            )
+            image_tokens = np.where(inputs["input_ids"].cpu().numpy() == image_token_ids)[1]
+            generation_config = make_generation_config(args, image_tokens, input_ids_lang_prior)
+
+            if args.method in ("vcd", "vcd_eg"):
+                from methods.utils.vcd_noise import add_diffusion_noise
+                generation_config.pixel_values_cd = add_diffusion_noise(
+                    inputs["pixel_values"], args.vcd_noise_step
+                )
+
+            with torch.no_grad():
+                output_ids = model.generate(**inputs, generation_config=generation_config)
+            output_text = processor.decode(
+                output_ids[0][len(inputs["input_ids"][0]):], skip_special_tokens=True
+            )
+
+            del output_ids, inputs
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
+
+            generations.append({
+                "question_id": sample["question_id"],
+                "split": sample["split"],
+                "label": sample["label"],
+                "response": output_text,
+            })
+
+    generations = gather_object(generations)
+    if distributed_state.is_main_process:
+        generations_path = os.path.join(experiment_name, "pope_generations.jsonl")
+        pope_benchmark.dump_generations(generations, generations_path)
+        pope_benchmark.evaluate(generations_path, dump_results=True)
 
 
 if __name__ == "__main__":
