@@ -63,30 +63,51 @@ def hidden_state_to_logits(model, hidden_state):
 
 
 def get_norm_and_lm_head(model):
-    """Get the final RMSNorm layer and lm_head from the model.
-
-    Supports:
-    - LlavaForConditionalGeneration: model.language_model.model.norm / .lm_head
-    - Qwen2VLForConditionalGeneration / LlamaForCausalLM: model.model.norm / .lm_head
-
-    Returns: (norm_layer, lm_head_layer) tuple.
     """
-    # LlavaForConditionalGeneration (has language_model wrapper)
-    if hasattr(model, 'language_model'):
-        lm = model.language_model
-        if hasattr(lm, 'model') and hasattr(lm.model, 'norm'):
-            return lm.model.norm, lm.lm_head
+    Ultra-robust version: automatically find norm and lm_head.
+    """
 
-    # Direct model (Qwen2VL, LlamaForCausalLM, etc.)
-    if hasattr(model, 'model') and hasattr(model.model, 'norm'):
-        return model.model.norm, model.lm_head
+    # -------- lm_head --------
+    if hasattr(model, "lm_head"):
+        lm_head = model.lm_head
+    elif hasattr(model, "get_output_embeddings"):
+        lm_head = model.get_output_embeddings()
+    else:
+        raise AttributeError("Cannot find lm_head on model.")
 
-    raise AttributeError(
-        "Cannot find norm and lm_head on model. "
-        "Expected model.language_model.model.norm or model.model.norm"
-    )
+    # -------- 常见路径优先 --------
+    candidates = [
+        "model.norm",
+        "model.final_layernorm",
+        "transformer.norm",
+        "transformer.final_layernorm",
+        "norm",
+    ]
 
+    for path in candidates:
+        obj = model
+        found = True
+        for attr in path.split("."):
+            if hasattr(obj, attr):
+                obj = getattr(obj, attr)
+            else:
+                found = False
+                break
+        if found:
+            return obj, lm_head
 
+    # -------- fallback：自动搜索 --------
+    for name, module in model.named_modules():
+        if "norm" in name.lower():
+            # 只取最后一个（通常是final norm）
+            last_norm = module
+
+    if 'last_norm' in locals():
+        print(f"[DEBUG] Using detected norm: {name}")
+        return last_norm, lm_head
+
+    raise AttributeError("Cannot find norm in model.")
+    
 def project_prenorm_to_logits(model, hidden_state):
     """Apply norm + lm_head to a PRE-NORM hidden state to get logits.
 

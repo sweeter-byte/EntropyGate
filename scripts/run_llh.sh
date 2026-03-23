@@ -19,7 +19,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-GPU_ID="${GPU_ID:-0}"
+GPU_ID="5"
 SEED="${SEED:-42}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-512}"
 QUANTIZATION="${QUANTIZATION:-4bit}"
