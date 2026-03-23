@@ -436,6 +436,11 @@ def main():
     )
     processor = AutoProcessor.from_pretrained(args.model_name)
 
+    global _USE_QWEN_FORMAT
+    _USE_QWEN_FORMAT = _is_qwen_model(args.model_name)
+    if _USE_QWEN_FORMAT:
+        print(f"Detected Qwen2.5-VL series model: {args.model_name}")
+
     if args.run_chair_benchmark:
         run_chair_benchmark(model, processor, args)
     if args.run_amber_benchmark:
@@ -449,15 +454,26 @@ def main():
     if args.run_pope_benchmark:
         run_pope_benchmark(model, processor, args)
 
-def _make_system_content():
-    return [{"type": "text", "text": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions."}]
+def _is_qwen_model(model_name: str) -> bool:
+    """Detect if the model is a Qwen2.5-VL series model."""
+    _QWEN_KEYWORDS = ("qwen", "r1-onevision", "vision-r1", "vl-rethinker",
+                       "vl-cogito", "openvlthinker")
+    name_lower = model_name.lower()
+    return any(kw in name_lower for kw in _QWEN_KEYWORDS)
+
+
+_LLAVA_SYSTEM_CONTENT = [{"type": "text", "text": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions."}]
+
+
+_USE_QWEN_FORMAT = False  # set in main() based on model name
 
 
 def _build_lang_prior_inputs(processor, text, device):
     conversation = [
-        {"role": "system", "content": _make_system_content()},
         {"role": "user", "content": [{"type": "text", "text": text}]},
     ]
+    if not _USE_QWEN_FORMAT:
+        conversation.insert(0, {"role": "system", "content": _LLAVA_SYSTEM_CONTENT})
     out = processor.apply_chat_template(
         conversation, add_generation_prompt=True,
         tokenize=True, return_dict=True, return_tensors="pt"
@@ -467,12 +483,13 @@ def _build_lang_prior_inputs(processor, text, device):
 
 def _build_full_inputs(processor, image, text, device):
     conversation = [
-        {"role": "system", "content": _make_system_content()},
         {"role": "user", "content": [
             {"type": "image", "url": image},
             {"type": "text", "text": text},
         ]},
     ]
+    if not _USE_QWEN_FORMAT:
+        conversation.insert(0, {"role": "system", "content": _LLAVA_SYSTEM_CONTENT})
     return processor.apply_chat_template(
         conversation, add_generation_prompt=True,
         tokenize=True, return_dict=True, return_tensors="pt"
