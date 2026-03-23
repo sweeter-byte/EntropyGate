@@ -22,6 +22,12 @@ SEED="${SEED:-42}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-64}"
 MODEL="${MODEL:-/data1/ranmaoyin/models/llava-1.5-7b-hf}"
 
+# To run with Qwen2.5-VL series models (LEAD paper comparison):
+#   MODEL=/data1/ranmaoyin/models/Qwen2.5-VL-7B-Instruct bash scripts/run_lead_comparison.sh
+#   MODEL=/data1/ranmaoyin/models/R1-Onevision-7B bash scripts/run_lead_comparison.sh
+#   MODEL=/data1/ranmaoyin/models/Vision-R1-7B bash scripts/run_lead_comparison.sh
+# Note: Requires qwen-vl-utils>=0.0.8 (pip install qwen-vl-utils)
+
 # POPE data paths
 POPE_PATH="${POPE_PATH:-/data1/ranmaoyin/dataset/pope}"
 POPE_COCO_IMAGE_DIR="${POPE_COCO_IMAGE_DIR:-/data1/ranmaoyin/dataset/coco2014/val2014}"

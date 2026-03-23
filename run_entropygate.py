@@ -454,6 +454,24 @@ def main():
     if args.run_pope_benchmark:
         run_pope_benchmark(model, processor, args)
 
+def _strip_think_tags(text: str) -> str:
+    """Strip <think>...</think> reasoning blocks from model output.
+
+    Applied automatically for Qwen/R1 reasoning models whose outputs
+    may contain <think>...</think> chains before the final answer.
+    """
+    import re
+    return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+
+
+def _decode_output(processor, output_ids, input_len: int) -> str:
+    """Decode model output and strip <think> tags for reasoning models."""
+    text = processor.decode(output_ids[0][input_len:], skip_special_tokens=True)
+    if _USE_QWEN_FORMAT:
+        text = _strip_think_tags(text)
+    return text
+
+
 def _is_qwen_model(model_name: str) -> bool:
     """Detect if the model is a Qwen2.5-VL series model."""
     _QWEN_KEYWORDS = ("qwen", "r1-onevision", "vision-r1", "vl-rethinker",
@@ -532,7 +550,7 @@ def run_chair_benchmark(model, processor, args):
 
             with torch.no_grad():
                 output_ids = model.generate(**inputs, generation_config=generation_config)
-            output_text = processor.decode(output_ids[0][len(inputs["input_ids"][0]):], skip_special_tokens=True)
+            output_text = _decode_output(processor, output_ids, len(inputs["input_ids"][0]))
 
             try:
                 del inputs["input_ids"]
@@ -603,9 +621,7 @@ def run_amber_benchmark(model, processor, args):
 
             with torch.no_grad():
                 output_ids = model.generate(**inputs, generation_config=generation_config)
-            output_text = processor.decode(
-                output_ids[0][len(inputs["input_ids"][0]):], skip_special_tokens=True
-            )
+            output_text = _decode_output(processor, output_ids, len(inputs["input_ids"][0]))
 
             try:
                 del inputs["input_ids"]
@@ -660,7 +676,7 @@ def run_mme_benchmark(model, processor, args):
 
             with torch.no_grad():
                 output_ids = model.generate(**inputs, generation_config=generation_config)
-            output_text = processor.decode(output_ids[0][len(inputs["input_ids"][0]):], skip_special_tokens=True)
+            output_text = _decode_output(processor, output_ids, len(inputs["input_ids"][0]))
             pred_ans = parse_pred_ans(output_text)
 
             results.append({
@@ -729,7 +745,7 @@ def run_mathvista_benchmark(model, processor, args):
 
             with torch.no_grad():
                 output_ids = model.generate(**inputs, generation_config=generation_config)
-            output_text = processor.decode(output_ids[0][len(inputs["input_ids"][0]):], skip_special_tokens=True)
+            output_text = _decode_output(processor, output_ids, len(inputs["input_ids"][0]))
 
             generations.append({
                 "pid": problem['pid'],
@@ -775,7 +791,7 @@ def run_mmmu_benchmark(model, processor, args):
 
             with torch.no_grad():
                 output_ids = model.generate(**inputs, generation_config=generation_config)
-            output_text = processor.decode(output_ids[0][len(inputs["input_ids"][0]):], skip_special_tokens=True)
+            output_text = _decode_output(processor, output_ids, len(inputs["input_ids"][0]))
             out_samples_list.append({"id": sample['id'], "output": output_text})
 
     out_samples_list = gather_object(out_samples_list)
@@ -835,9 +851,7 @@ def run_pope_benchmark(model, processor, args):
 
             with torch.no_grad():
                 output_ids = model.generate(**inputs, generation_config=generation_config)
-            output_text = processor.decode(
-                output_ids[0][len(inputs["input_ids"][0]):], skip_special_tokens=True
-            )
+            output_text = _decode_output(processor, output_ids, len(inputs["input_ids"][0]))
 
             del output_ids, inputs
             if torch.cuda.is_available():
