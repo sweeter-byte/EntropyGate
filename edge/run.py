@@ -45,6 +45,9 @@ hf_logging.set_verbosity_error()
 
 distributed_state = PartialState()
 
+# Base directory for all EDGE outputs (logs + experiments), anchored to edge/ package location
+_EDGE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 def _model_slug(model_name: str) -> str:
     return "--".join(part for part in model_name.split("/") if part)
@@ -114,7 +117,7 @@ def args_parser():
 
 
 def setup_logging(experiment_name, log_level="INFO"):
-    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+    log_dir = os.path.join(_EDGE_DIR, "logs")
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, f"{experiment_name}.log")
 
@@ -214,7 +217,7 @@ def _build_full_inputs(processor, image, text, device):
 # ---- Benchmark runners ----
 
 def run_chair_benchmark(model, processor, args):
-    experiment_name = os.path.join("experiments", _model_slug(args.model_name), "EDGE", args.experiment_name)
+    experiment_name = os.path.join(_EDGE_DIR, "experiments", _model_slug(args.model_name), "CHAIR", args.experiment_name)
     os.makedirs(experiment_name, exist_ok=True)
 
     chair_benchmark = ChairBenchmarkDataset(
@@ -260,7 +263,7 @@ def run_chair_benchmark(model, processor, args):
 
 
 def run_pope_benchmark(model, processor, args):
-    experiment_name = os.path.join("experiments", _model_slug(args.model_name), "EDGE", "POPE", args.experiment_name)
+    experiment_name = os.path.join(_EDGE_DIR, "experiments", _model_slug(args.model_name), "POPE", args.experiment_name)
     os.makedirs(experiment_name, exist_ok=True)
 
     pope_benchmark = PopeBenchmarkDataset(
@@ -309,7 +312,7 @@ def run_pope_benchmark(model, processor, args):
 
 
 def run_amber_benchmark(model, processor, args):
-    experiment_name = os.path.join("experiments", _model_slug(args.model_name), "EDGE", "AMBER", args.experiment_name)
+    experiment_name = os.path.join(_EDGE_DIR, "experiments", _model_slug(args.model_name), "AMBER", args.experiment_name)
     os.makedirs(experiment_name, exist_ok=True)
 
     amber_benchmark = AmberBenchmarkDataset(
@@ -360,7 +363,7 @@ def run_amber_benchmark(model, processor, args):
 
 
 def run_mme_benchmark(model, processor, args):
-    experiment_name = os.path.join("experiments", _model_slug(args.model_name), "EDGE", "MME", args.experiment_name)
+    experiment_name = os.path.join(_EDGE_DIR, "experiments", _model_slug(args.model_name), "MME", args.experiment_name)
     os.makedirs(experiment_name, exist_ok=True)
 
     mme_dataset = load_dataset("darkyarding/MME")["test"]
