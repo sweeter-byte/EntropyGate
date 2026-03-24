@@ -208,10 +208,12 @@ def _build_full_inputs(processor, image, text, device):
     ]}]
     if not _USE_QWEN_FORMAT:
         conversation.insert(0, {"role": "system", "content": _LLAVA_SYSTEM_CONTENT})
-    return processor.apply_chat_template(
+    inputs = processor.apply_chat_template(
         conversation, add_generation_prompt=True,
         tokenize=True, return_dict=True, return_tensors="pt"
     ).to(device, torch.bfloat16)
+    inputs.pop("mm_token_type_ids", None)
+    return inputs
 
 
 # ---- Benchmark runners ----

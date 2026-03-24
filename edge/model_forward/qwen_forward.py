@@ -153,7 +153,11 @@ def forward(
         use_cache = False
 
     if inputs_embeds is None:
-        inputs_embeds = self.embed_tokens(input_ids)
+        # Qwen2-VL: self.embed_tokens; Qwen2.5-VL: self.language_model.embed_tokens
+        _embed_fn = getattr(self, "embed_tokens", None)
+        if _embed_fn is None:
+            _embed_fn = self.language_model.embed_tokens
+        inputs_embeds = _embed_fn(input_ids)
 
     if use_cache and past_key_values is None:
         past_key_values = DynamicCache()
@@ -289,8 +293,15 @@ def forward_conditional(
     )
     return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
+    # Qwen2-VL: self.model is the language model (has embed_tokens, layers, norm)
+    # Qwen2.5-VL: self.model.language_model is the language model
+    _inner_model = self.model
+    if not hasattr(_inner_model, "embed_tokens"):
+        _inner_model = _inner_model.language_model
+    _embed_tokens = _inner_model.embed_tokens
+
     if inputs_embeds is None:
-        inputs_embeds = self.model.embed_tokens(input_ids)
+        inputs_embeds = _embed_tokens(input_ids)
         if pixel_values is not None:
             pixel_values = pixel_values.type(self.visual.get_dtype())
             image_embeds = self.visual(pixel_values, grid_thw=image_grid_thw)
@@ -352,7 +363,7 @@ def forward_conditional(
             position_ids = position_ids.add(delta)
             position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
 
-    outputs = self.model(
+    outputs = _inner_model(
         input_ids=None,
         position_ids=position_ids,
         attention_mask=attention_mask,
@@ -406,7 +417,9 @@ def patch_qwen_forward():
 
     try:
         from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl
-        modeling_qwen2_5_vl.Qwen2_5_VLModel.forward = forward
+        # Qwen2.5-VL nests layers/norm/embed_tokens inside language_model (Qwen2_5_VLTextModel),
+        # so patch the text model, not Qwen2_5_VLModel itself.
+        modeling_qwen2_5_vl.Qwen2_5_VLTextModel.forward = forward
         modeling_qwen2_5_vl.Qwen2_5_VLForConditionalGeneration.forward = forward_conditional
     except (ImportError, AttributeError):
         pass
