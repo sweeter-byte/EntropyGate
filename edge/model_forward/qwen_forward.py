@@ -42,6 +42,16 @@ def _apply_2d_mask_to_4d(causal_mask_4d, augmented_mask_2d, dtype):
         mask_4d = augmented_mask_2d[:, None, None, :].to(dtype=dtype)
         mask_4d = (1.0 - mask_4d) * torch.finfo(dtype).min
         return mask_4d
+
+    batch, mask_len = augmented_mask_2d.shape
+    kv_len = causal_mask_4d.shape[-1]
+
+    if mask_len < kv_len:
+        pad = augmented_mask_2d.new_ones(batch, kv_len - mask_len)
+        augmented_mask_2d = torch.cat([augmented_mask_2d, pad], dim=1)
+    elif mask_len > kv_len:
+        augmented_mask_2d = augmented_mask_2d[:, :kv_len]
+
     extra_mask = augmented_mask_2d[:, None, None, :].to(dtype=dtype, device=causal_mask_4d.device)
     extra_mask = (1.0 - extra_mask) * torch.finfo(dtype).min
     return causal_mask_4d + extra_mask
@@ -70,7 +80,9 @@ def _run_decoder_layer_with_attn(decoder_layer, hidden_states, causal_mask,
             captured_attn["weights"] = output[1]
 
     if _is_v5_decoder_layer(decoder_layer):
-        hook = decoder_layer.self_attn.register_forward_hook(_attn_hook)
+        hook = None
+        if output_attentions:
+            hook = decoder_layer.self_attn.register_forward_hook(_attn_hook)
         try:
             out = decoder_layer(
                 hidden_states,
@@ -82,7 +94,8 @@ def _run_decoder_layer_with_attn(decoder_layer, hidden_states, causal_mask,
                 position_embeddings=position_embeddings,
             )
         finally:
-            hook.remove()
+            if hook is not None:
+                hook.remove()
 
         h = out if isinstance(out, torch.Tensor) else out[0]
         attn = captured_attn.get("weights", None)
@@ -180,15 +193,23 @@ def forward(
         minimum_text_tokens=minimum_text_tokens,
     )
 
-    for decoder_layer in self.layers:
+    max_attn_layer = 0
+    if use_fast_v and aggregate_layer_fast_v is not None:
+        max_attn_layer = max(max_attn_layer, aggregate_layer_fast_v)
+    if use_text_mask and aggregate_layer_text_mask is not None:
+        max_attn_layer = max(max_attn_layer, aggregate_layer_text_mask)
+
+    for layer_idx, decoder_layer in enumerate(self.layers):
         if output_hidden_states:
             all_hidden_states += (hidden_states,)
+
+        need_attn_this_layer = output_attentions and (layer_idx <= max_attn_layer)
 
         if self.gradient_checkpointing and self.training:
             layer_outputs = self._gradient_checkpointing_func(
                 decoder_layer.__call__,
                 hidden_states, causal_mask, position_ids, past_key_values,
-                output_attentions, use_cache, cache_position, position_embeddings,
+                need_attn_this_layer, use_cache, cache_position, position_embeddings,
             )
             hidden_states = layer_outputs[0] if isinstance(layer_outputs, tuple) else layer_outputs
         else:
@@ -203,17 +224,20 @@ def forward(
             else:
                 causal_mask = self._update_causal_mask(
                     augmented_attention_mask, inputs_embeds, cache_position,
-                    past_key_values, output_attentions
+                    past_key_values, need_attn_this_layer
                 )
 
             hidden_states, attn_weights = _run_decoder_layer_with_attn(
                 decoder_layer, hidden_states, causal_mask, position_ids,
-                past_key_values, output_attentions, use_cache,
+                past_key_values, need_attn_this_layer, use_cache,
                 cache_position, position_embeddings,
             )
 
-            if output_attentions and attn_weights is not None:
+            if need_attn_this_layer and attn_weights is not None:
                 all_self_attns += (attn_weights,)
+
+            if layer_idx == max_attn_layer and all_self_attns:
+                all_self_attns = ()
 
     hidden_states = self.norm(hidden_states)
 

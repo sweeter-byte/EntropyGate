@@ -22,8 +22,7 @@ from edge.constants import (
 class EdgeGenerationConfig(GenerationConfig):
 
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
+        # Pop EDGE-specific keys BEFORE super().__init__() consumes kwargs
         self.key_position = kwargs.pop(KEY_POSITION, None)
 
         # Fast V (image token pruning)
@@ -45,3 +44,5 @@ class EdgeGenerationConfig(GenerationConfig):
         self.gamma_decay = kwargs.pop(GAMMA_DECAY, DEFAULT_GAMMA_DECAY)
         self.beta_cutoff = kwargs.pop(BETA_CUTOFF, DEFAULT_BETA_CUTOFF)
         self.theta_safe = kwargs.pop(THETA_SAFE, DEFAULT_THETA_SAFE)
+
+        super().__init__(**kwargs)
